@@ -29,7 +29,6 @@ import config
 import itertools # create combo list
 import os
 
-
 warnings.filterwarnings('ignore')
 %matplotlib inline
 
@@ -190,12 +189,28 @@ X_train = pd.get_dummies(X_train)
 X_test = pd.get_dummies(X_test)
 X_valid = pd.get_dummies(X_valid)
 
+plt.spy(X_train)
+
 sns.distplot(y_train)
 sns.distplot(y_valid)
 fig = plt.figure()
 
+# find feature importance TEST - I have found this to not work well
+
+feat_labels = X_train.columns
+importances = m.feature_importances_
+
+indices = np.argsort(importances)[::-1]
+
+for f in range (X_train.shape[1]):
+    print("%2d)%-*s %f" % (f + 1,30,
+         feat_labels[indices[f]],
+         importances[indices[f]]))
+
 column_list = X_train.columns.tolist()
-   
+
+# gather mutual information from the data set
+
 new_dict = {}
 
 for c in column_list:
@@ -212,6 +227,7 @@ for c in column_list:
     mi = mutual_info_regression(Xmi_valid,y_valid)
     new_dict2[c] = sum(mi)
 
+# test the structure of the trees
 m = RandomForestRegressor(max_features = 0.5,n_estimators = 150 ,oob_score = True,min_samples_leaf=3)
 m.fit(X_train,y_train)
 print(m.oob_score_)
@@ -235,24 +251,6 @@ X_test = X_test[['OverallQual'	,'TotalBsmtSF'	,'GarageCars'	,'Baths'	,'GrLivArea
 m = RandomForestRegressor(max_features = 0.5,n_estimators = 100 ,oob_score = True,min_samples_leaf=3)
 m.fit(X_train,y_train)
 print_score(m)
-
-train_sizes,train_scores,test_scores = learning_curve(estimator=m,X=X_train,y=y_train,train_sizes=np.linspace(0.1,1.0,10),cv=10,n_jobs=-1)
-
-train_mean = np.mean(train_scores,axis=1)
-train_std = np.std(train_scores,axis=1)
-test_mean = np.mean(test_scores,axis=1)
-test_std = np.std(test_scores,axis=1)
-
-plt.plot(train_sizes,train_mean,color = 'blue',marker='o',markersize=5,label='training accuracy')
-plt.fill_between(train_sizes,train_mean + train_std,train_mean - train_std,alpha=0.15,color='blue')
-plt.plot(train_sizes,test_mean,color='green',linestyle='--',marker='s',markersize=5,label='validation accuracy')
-plt.fill_between(train_sizes,test_mean + test_std,test_mean - test_std,alpha=0.15,color='blue')
-plt.grid()
-plt.xlabel('Number of training samples')
-plt.ylabel('Accuracy')
-plt.legend(loc='lower right')
-plt.ylim([0.8,1.1])
-plt.show()
 
 rmsle(X_train,y_train)
 rmsle(X_valid,y_valid)
@@ -536,40 +534,6 @@ plt.show()
 
 plot_corr_heatmap(X_train)
 
-# test removing 0 mutual information columns
-
-param_range = [0.0001,0.001,0.01,0.1,1.0,10.0,100.0,1000.0]
-
-param_grid = [{'n_estimators': [50,60,70,80,90,100,110,120,130,140,160,170,180,190,200],
-               'max_depth':[3,5,7,9,11,13],
-                 'max_features': [0.3,0.4,0.5],
-                 'min_samples_leaf':[3,5]}]
-
-gs = GridSearchCV(estimator = m,param_grid=param_grid,
-                  scoring = 'neg_mean_squared_error',
-                  cv=10,n_jobs=-1)
-
-gs = gs.fit(X_train,y_train)
-gs.best_score_
-gs.best_params_
-
-m = RandomForestRegressor(max_features = 0.5, n_estimators = 150 ,oob_score = True,min_samples_leaf=3)
-m.fit(X_train,y_train)
-print_score(m)
-
-
-draw_tree(m.estimators_[0],X_train,precision=3)
-
-# plot predict vs actual
-
-import matplotlib.pyplot as plt
-
-y_pred_train = m.predict(X_train)
-plt.scatter(y_pred_train,y_train)# check how random validation set is
-
-y_pred_valid = m.predict(X_valid)
-plt.scatter(y_pred_valid,y_valid)# check how random validation set is
-
 # check to see if validation data set is overfitted or not
 
 X_valid['Class'] = 1
@@ -592,11 +556,9 @@ X_train[feats].describe()
 X_valid.drop(['Class'],axis=1,inplace=True)
 X_train.drop(['Class'],axis=1,inplace=True)
 
-# analyze importance on validation set 
-
+# submit predictions
 
 y_pred = m.predict(X_test)
-
 df_test['SalePrice'] = y_pred
 submissions = df_test[['Id','SalePrice']]
 submissions['Id'] = submissions['Id'].astype(int)
