@@ -4,19 +4,31 @@ Created on Fri Jul  6 10:58:19 2018
 
 @author: jjonus
 """
-import pandas as pd
-import os
-import matplotlib.pyplot as plt
-import seaborn as sns
-import numpy as np
-from scipy.stats import norm
-from sklearn.preprocessing import StandardScaler
-from scipy import stats
+from sklearn.ensemble import RandomForestRegressor,GradientBoostingRegressor,ExtraTreesRegressor,RandomForestClassifier # Regressor and Classifiers
+from sklearn.model_selection import learning_curve,validation_curve,cross_val_score,GridSearchCV,train_test_split # validation
+from sklearn.feature_selection import  mutual_info_regression # mutual information
+from treeinterpreter import treeinterpreter as ti # tree interpretations
+from scipy.cluster import hierarchy as hc # used for dendrogram analysis
+import matplotlib.pyplot as plt # plotting
+from fastai.structured import * # get_sample function as well 
+from fancyimpute import MICE # imputation
+from fastai.imports import *  # fast ai library
+from pandas_summary import * 
+from sklearn import metrics # for metrics on Grid Search CV
+import pandas as pd # pandas
+import seaborn as sns # seaborn plotting
+import numpy as np # np library
+from scipy import stats 
+import missingno as msno # view missing data
+from rfpimp import *
 import warnings
-import missingno as msno
-from fancyimpute import MICE
-from scipy import stats
-from scipy.stats import norm, skew
+import sys
+import traceback
+import time
+import config    
+import itertools # create combo list
+import os
+
 
 warnings.filterwarnings('ignore')
 %matplotlib inline
@@ -28,40 +40,16 @@ if 'jjonus' in current_loc:
 elif 'jstnj' in current_loc:
     current_wd = ('C:\\Users\\jstnj\\Google Drive\\Kaggle\\Advanced House Prices')
     
-df_train = pd.read_csv(current_wd +'\\train.csv')
-    
+df_train = pd.read_csv(current_wd +'\\train.csv')   
 df_test = pd.read_csv(current_wd +'\\test.csv')
 
 df_train.columns.to_series().groupby(df_train.dtypes).groups
 
-df_train['SalePrice'].describe()
-
-# check histogram on sales price
-
-sns.distplot(df_train['SalePrice'])
-
-# check norm
-
-sns.distplot(np.log(df_train['SalePrice']), fit=norm);
-fig = plt.figure()
-res = stats.probplot(np.log(df_train['SalePrice']), plot=plt)
-
-# perform eda
-
-corrmat = df_train.corr()
-f, ax = plt.subplots(figsize=(12, 9))
-sns.heatmap(corrmat, vmax=.8, square=True);
-
-# save id column
-
-#train_ID = df_train['Id']
-#test_ID = df_test['Id']
-
-# feature engineering - combine data sets first
+# Split data set into test and train
 
 ntrain = df_train.shape[0]
 ntest = df_test.shape[0]
-y_train = np.log(df_train.SalePrice.values)
+y_train = df_train.SalePrice.values
 all_data = pd.concat((df_train, df_test)).reset_index(drop=True)
 all_data.drop(['SalePrice'], axis=1, inplace=True)
 print("all_data size is : {}".format(all_data.shape))
@@ -118,171 +106,137 @@ all_data.loc[2250,'MSZoning'] = 'RM'
 all_data.loc[1915,'Utilities'] = 'AllPub'
 all_data.loc[1945,'Utilities'] = 'AllPub'
 
-# boxplot lot frontage by neighborhood
-
-plt.figure(figsize=(20,15))
-sns.boxplot(x = "Neighborhood",y="LotFrontage",data = all_data)
-plt.show()
-
 # analyze which neighborhoods have null data
 
 all_data[pd.isna(all_data['LotFrontage'])].groupby("Neighborhood").size().sort_values(ascending = False)
-
-#impute lot frontage and other empty values
-
-numeric_data = all_data.select_dtypes(include = ['float64','int64'])
-solver=MICE()
-Imputed_dataframe= pd.DataFrame(data = solver.complete(numeric_data),columns = numeric_data.columns,index = numeric_data.index)
-all_data['LotFrontage'] = Imputed_dataframe['LotFrontage']
 
 # change from number to categorical variable (set in string)
 
 all_data['MSSubClass'] = all_data['MSSubClass'].apply(str)
 
-# normalize data
+all_data['HalfBathTransformed'] = all_data['HalfBath'] * 0.5
+all_data['HalfBathBsmtTransformed'] = all_data['BsmtHalfBath'] * 0.5
+all_data['Baths'] = all_data['FullBath'] + all_data['HalfBathTransformed'] + all_data['HalfBathBsmtTransformed']  + all_data['BsmtFullBath']
 
-numeric_feats = all_data.dtypes[all_data.dtypes != "object"].index
+# variable selection - create neighborhood, Subclass and quality groupings
 
-# Check the skew of all numerical features
+# evaluation metrics and model vetting function
 
-skewed_feats = all_data[numeric_feats].apply(lambda x: skew(x.dropna())).sort_values(ascending=False)
-skewness = pd.DataFrame({'Skew' :skewed_feats}).reset_index()
+def rmse(x,y): return math.sqrt(((x-y)**2).mean())
 
-skewness.rename(columns = {'index':'feature'},inplace=True)
+def print_score(m):
+    res = [rmse(m.predict(X_train),y_train),rmse(m.predict(X_valid),y_valid),m.score(X_train,y_train),m.score(X_valid,y_valid)]
+    if hasattr(m,'oob_score_'): res.append(m.oob_score_)
+    print(res)
 
-# remove values that shouldnt be transformed
+def rmsle(X, y): 
+    y_pred = m.predict(X)
+    assert len(y) == len(y_pred)
+    return np.sqrt(np.mean((np.log(1+y_pred) - np.log(1+y))**2))
 
-skewness = skewness[skewness.feature != 'BsmtHalfBath']
-skewness = skewness[skewness.feature != 'KitchenAbvGr']
-skewness = skewness[skewness.feature != 'HalfBath']
-skewness = skewness[skewness.feature != 'TotRmsAbvGrd']
-skewness = skewness[skewness.feature != 'YearRemodAdd']
-skewness = skewness[skewness.feature != 'OverallQual']
-skewness = skewness[skewness.feature != 'YearBuilt']
-skewness = skewness[skewness.feature != 'Id']
-skewness = skewness[skewness.feature != 'GarageYrBlt']
-skewness = skewness[skewness.feature != 'FullBath']
-skewness = skewness[skewness.feature != 'GarageCars']
-skewness = skewness[skewness.feature != 'Fireplaces']
-skewness = skewness[skewness.feature != 'MoSold']
-skewness = skewness[skewness.feature != 'YrSold']
-skewness = skewness[skewness.feature != 'OverallCond']
-skewness = skewness[skewness.feature != 'BedroomAbvGr']
-skewness = skewness[skewness.feature != 'BsmtFullBath']
+def dropcol_importances(rf, X_train, y_train):
+    rf_ = clone(rf)
+    rf_.random_state = 999
+    rf_.fit(X_train, y_train)
+    baseline = rf_.oob_score_
+    imp = []
+    for col in X_train.columns:
+        X = X_train.drop(col, axis=1)
+        rf_ = clone(rf)
+        rf_.random_state = 999
+        rf_.fit(X, y_train)
+        o = rf_.oob_score_
+        imp.append(baseline - o)
+    imp = np.array(imp)
+    I = pd.DataFrame(
+            data={'Feature':X_train.columns,
+                  'Importance':imp})
+    I = I.set_index('Feature')
+    I = I.sort_values('Importance', ascending=True)
+    return I
 
-scaler = StandardScaler()
-scale_features = skewness.feature.values.tolist()
-
-all_data[scale_features] = scaler.fit_transform(all_data[scale_features])
-
-# change all variables to float and check remaining data types
-
-cols = all_data.loc[:,all_data.dtypes == np.int64].columns.tolist()
-all_data[cols] = all_data[cols].astype(float)
-all_data.columns.to_series().groupby(all_data.dtypes).groups
-
-# make dummy columns and change remaining 
-
-#all_data = pd.get_dummies(all_data)
-#all_data['Id'] = all_data['Id'].astype(str)
-#all_data['YearBuilt'] = all_data['YearBuilt'].astype(str)
-#all_data['YearRemodAdd'] = all_data['YearRemodAdd'].astype(str)
-#all_data['GarageYrBlt'] = all_data['GarageYrBlt'].astype(str)
-
-# split back into train and test
+# combination function
+    
+def list_trans(features):
+    list_o_lists = []
+    for c in range(1,len(features)+1):
+        print(c)
+        data =  list(itertools.combinations(features,c))
+        list_o_lists.append(data)
+    new_list = [[]]
+    for i in list(list_o_lists):
+        for c in i:
+            new_list.append(c)
+    return new_list
 
 train = all_data[:ntrain]
 test = all_data[ntrain:]
+y_train = df_train.SalePrice.values
 
-# start modelling - check the learning and validation curve along the way
-    
-from sklearn.metrics import mean_squared_error
-from sklearn.pipeline import make_pipeline
-from sklearn.neighbors import KNeighborsRegressor
-from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
-from sklearn.linear_model import LinearRegression,Lasso,Ridge
-import matplotlib.pyplot as plt
-from sklearn.model_selection import learning_curve,validation_curve,cross_val_score
-import statsmodels.formula.api as smf
-from statsmodels.stats.outliers_influence import variance_inflation_factor
-from patsy import dmatrices
-from statsmodels.tools.tools import add_constant
-from civismlext.stacking import StackedRegressor
-from civismlext.nonnegative import NonNegativeLinearRegression
+numeric_data_train = train.select_dtypes(include = ['float64','int64'])
+solver=MICE()
+Imputed_dataframe_train= pd.DataFrame(data = solver.complete(numeric_data_train),columns = numeric_data_train.columns,index = numeric_data_train.index)
+numeric_data_test = test.select_dtypes(include = ['float64','int64'])
+solver=MICE()
+Imputed_dataframe_test= pd.DataFrame(data = solver.complete(numeric_data_test),columns = numeric_data_test.columns,index = numeric_data_test.index)
 
-# rename columns and create func for changing housestyle values
+train['LotFrontage'] = Imputed_dataframe_train['LotFrontage']
+test['LotFrontage'] = Imputed_dataframe_test['LotFrontage']
 
-def func(row):
-    if row['HouseStyle'] == '2Story':
-        return 'TwoStory'
-    elif row['HouseStyle'] =='1Story':
-        return 'OneStory' 
-    elif row['HouseStyle'] =='1.5Fin':
-        return 'OneFiveFin' 
-    elif row['HouseStyle'] =='1.5Unf':
-        return 'OneFivUnf' 
-    elif row['HouseStyle']=='2.5Unf':
-        return 'TwoFiveUnf'
-    elif row['HouseStyle']=='2.5Fin':
-        return 'TwoFiveFin' 
-    else:
-        return row['HouseStyle']
+X_train,X_valid,y_train,y_valid = train_test_split(train,y_train,test_size=0.25,random_state=1)
 
-train['HouseStyle'] = train.apply(func,axis=1)
-train.rename(columns = {'1stFlrSF':'FirstFlrSF','2ndFlrSF':'SecondFlrSF'},inplace=True)
-train['SalePrice'] = y_train
+X_test = test.copy()
+X_train = pd.get_dummies(X_train)
+X_test = pd.get_dummies(X_test)
+X_valid = pd.get_dummies(X_valid)
 
-test['HouseStyle'] = test.apply(func,axis=1)
-test.rename(columns = {'1stFlrSF':'FirstFlrSF','2ndFlrSF':'SecondFlrSF'},inplace=True)
+sns.distplot(y_train)
+sns.distplot(y_valid)
+fig = plt.figure()
 
-# create feature for 1st or 2nd floor
+column_list = X_train.columns.tolist()
+   
+new_dict = {}
 
-train['FirstOrSecond'] = np.where(train['SecondFlrSF'] < -0.70 ,"FirstFloor","SecondFloorAbove")
-train['HalfBathTransformed'] = train['HalfBath'] * 0.5
-train['HalfBathBsmtTransformed'] = train['BsmtHalfBath'] * 0.5
-train['Baths'] = train['FullBath'] + train['HalfBathTransformed'] + train['HalfBathBsmtTransformed']  + train['BsmtFullBath']
-train['MSZoning'] = np.where(train['MSZoning'] == 'C (all)','MSZoning_C',train['MSZoning'])
+for c in column_list:
+    Xmi_train = X_train[[c]]
+    mi = mutual_info_regression(Xmi_train,y_train)
+    new_dict[c] = sum(mi)
 
+column_list = X_valid.columns.tolist()
 
-test['FirstOrSecond'] = np.where(test['SecondFlrSF'] < -0.70 ,"FirstFloor","SecondFloorAbove")
-test['HalfBathTransformed'] = test['HalfBath'] * 0.5
-test['HalfBathBsmtTransformed'] = test['BsmtHalfBath'] * 0.5
-test['Baths'] = test['FullBath'] + test['HalfBathTransformed'] + test['HalfBathBsmtTransformed']  + test['BsmtFullBath']
-test['MSZoning'] = np.where(test['MSZoning'] == 'C (all)','MSZoning_C',test['MSZoning'])
+new_dict2 = {}
 
-# create feature list to throw through lm model - create dynamic list
-x_val = train[['GrLivArea','OverallQual','BsmtQual','ExterQual','FirstOrSecond','SalePrice','Foundation','GarageCars','GarageFinish','Neighborhood','MSZoning','Baths','HouseStyle']]
-x_val = pd.get_dummies(x_val)
+for c in column_list:
+    Xmi_valid = X_valid[[c]]
+    mi = mutual_info_regression(Xmi_valid,y_valid)
+    new_dict2[c] = sum(mi)
 
-x_val_test = test[['GrLivArea','OverallQual','BsmtQual','ExterQual','FirstOrSecond','Foundation','GarageCars','GarageFinish','Neighborhood','MSZoning','Baths','HouseStyle']]
-x_val_test = pd.get_dummies(x_val_test)
-x_val_test['HouseStyle_TwoFiveFin'] = 0
+m = RandomForestRegressor(max_features = 0.5,n_estimators = 150 ,oob_score = True,min_samples_leaf=3)
+m.fit(X_train,y_train)
+print(m.oob_score_)
 
-features = " + ".join(x_val.columns).replace("SalePrice","")
+# examine tree
+draw_tree(m.estimators_[0],X_train,precision=3)
 
-lm = smf.ols(formula = 'SalePrice ~' + features ,data = x_val).fit()
+# mutual information data
 
-print(lm.summary())
+df_mi1 = pd.DataFrame.from_dict(new_dict,orient = 'index')
+df_mi2 = pd.DataFrame.from_dict(new_dict2,orient= 'index')
 
-y_pred_test = lm.predict(x_val_test).tolist()
+df_mi1.to_csv(current_wd + '\\mi1.csv')
+df_mi2.to_csv(current_wd + '\\mi2.csv')
 
-# check multi-collinearity
+ 
+X_train = X_train[['OverallQual'	,'TotalBsmtSF'	,'GarageCars'	,'Baths'	,'GrLivArea'	,'ExterQual_TA'	,'YearBuilt'	,'ExterQual_Gd'	,'1stFlrSF'	,'YearRemodAdd'	,'FullBath'	,'KitchenQual_TA'	,'Fireplaces'	,'BsmtQual_TA'	,'BsmtQual_Gd'	,'KitchenQual_Gd'	,'BsmtUnfSF'	,'Foundation_PConc'	,'LotFrontage'	,'HeatingQC_Ex'	,'GarageType_Attchd'	,'MSSubClass_60'	,'BsmtQual_Ex'	,'TotRmsAbvGrd'	,'GarageFinish_Unf'	,'2ndFlrSF'	,'BsmtFinType1_GLQ'	,'GarageType_Detchd'	,'OpenPorchSF'	,'GarageFinish_Fin'	,'HeatingQC_TA'	,'BsmtFinSF1'	,'LotArea'	,'GarageQual_TA'	,'Exterior1st_VinylSd'	,'Neighborhood_NridgHt'	,'FireplaceQu_TA'	,'FireplaceQu_Gd'	,'Foundation_CBlock'	,'OverallCond'	,'MasVnrArea'	,'MSZoning_RM'	,'HouseStyle_2Story'	,'Exterior2nd_VinylSd'	,'MasVnrType_None'	,'GarageCond_TA'	,'MSSubClass_30'	,'BedroomAbvGr'	,'GarageCond_None'	,'CentralAir_Y'	,'GarageFinish_RFn'	,'GarageQual_None'	,'KitchenQual_Ex'	,'GarageFinish_None'	,'GarageType_None'	,'Neighborhood_CollgCr'	,'Neighborhood_NWAmes'	,'LotShape_IR1'	,'LotShape_Reg'	,'Neighborhood_Gilbert'	,'MasVnrType_Stone'	,'Neighborhood_NoRidge'	,'Neighborhood_NAmes'	,'Foundation_BrkTil'	,'PavedDrive_Y'	,'KitchenQual_Fa'	,'BsmtFinType1_ALQ'	,'Condition1_Feedr'	,'BsmtFinType1_None'	,'BsmtExposure_None'	,'Exterior2nd_Wd Sdng'	,'BsmtFinType2_None'	,'MSZoning_RL'	,'BsmtCond_None'	,'BsmtQual_None'	,'MSSubClass_90'	,'BldgType_Duplex'	,'Electrical_FuseA'	,'EnclosedPorch'	,'Fence_None'	,'ExterQual_Ex'	,'KitchenAbvGr'	,'Neighborhood_Somerst'	,'MSSubClass_160'	,'Electrical_SBrkr']]
+X_valid = X_valid[['OverallQual'	,'TotalBsmtSF'	,'GarageCars'	,'Baths'	,'GrLivArea'	,'ExterQual_TA'	,'YearBuilt'	,'ExterQual_Gd'	,'1stFlrSF'	,'YearRemodAdd'	,'FullBath'	,'KitchenQual_TA'	,'Fireplaces'	,'BsmtQual_TA'	,'BsmtQual_Gd'	,'KitchenQual_Gd'	,'BsmtUnfSF'	,'Foundation_PConc'	,'LotFrontage'	,'HeatingQC_Ex'	,'GarageType_Attchd'	,'MSSubClass_60'	,'BsmtQual_Ex'	,'TotRmsAbvGrd'	,'GarageFinish_Unf'	,'2ndFlrSF'	,'BsmtFinType1_GLQ'	,'GarageType_Detchd'	,'OpenPorchSF'	,'GarageFinish_Fin'	,'HeatingQC_TA'	,'BsmtFinSF1'	,'LotArea'	,'GarageQual_TA'	,'Exterior1st_VinylSd'	,'Neighborhood_NridgHt'	,'FireplaceQu_TA'	,'FireplaceQu_Gd'	,'Foundation_CBlock'	,'OverallCond'	,'MasVnrArea'	,'MSZoning_RM'	,'HouseStyle_2Story'	,'Exterior2nd_VinylSd'	,'MasVnrType_None'	,'GarageCond_TA'	,'MSSubClass_30'	,'BedroomAbvGr'	,'GarageCond_None'	,'CentralAir_Y'	,'GarageFinish_RFn'	,'GarageQual_None'	,'KitchenQual_Ex'	,'GarageFinish_None'	,'GarageType_None'	,'Neighborhood_CollgCr'	,'Neighborhood_NWAmes'	,'LotShape_IR1'	,'LotShape_Reg'	,'Neighborhood_Gilbert'	,'MasVnrType_Stone'	,'Neighborhood_NoRidge'	,'Neighborhood_NAmes'	,'Foundation_BrkTil'	,'PavedDrive_Y'	,'KitchenQual_Fa'	,'BsmtFinType1_ALQ'	,'Condition1_Feedr'	,'BsmtFinType1_None'	,'BsmtExposure_None'	,'Exterior2nd_Wd Sdng'	,'BsmtFinType2_None'	,'MSZoning_RL'	,'BsmtCond_None'	,'BsmtQual_None'	,'MSSubClass_90'	,'BldgType_Duplex'	,'Electrical_FuseA'	,'EnclosedPorch'	,'Fence_None'	,'ExterQual_Ex'	,'KitchenAbvGr'	,'Neighborhood_Somerst'	,'MSSubClass_160'	,'Electrical_SBrkr']]
+X_test = X_test[['OverallQual'	,'TotalBsmtSF'	,'GarageCars'	,'Baths'	,'GrLivArea'	,'ExterQual_TA'	,'YearBuilt'	,'ExterQual_Gd'	,'1stFlrSF'	,'YearRemodAdd'	,'FullBath'	,'KitchenQual_TA'	,'Fireplaces'	,'BsmtQual_TA'	,'BsmtQual_Gd'	,'KitchenQual_Gd'	,'BsmtUnfSF'	,'Foundation_PConc'	,'LotFrontage'	,'HeatingQC_Ex'	,'GarageType_Attchd'	,'MSSubClass_60'	,'BsmtQual_Ex'	,'TotRmsAbvGrd'	,'GarageFinish_Unf'	,'2ndFlrSF'	,'BsmtFinType1_GLQ'	,'GarageType_Detchd'	,'OpenPorchSF'	,'GarageFinish_Fin'	,'HeatingQC_TA'	,'BsmtFinSF1'	,'LotArea'	,'GarageQual_TA'	,'Exterior1st_VinylSd'	,'Neighborhood_NridgHt'	,'FireplaceQu_TA'	,'FireplaceQu_Gd'	,'Foundation_CBlock'	,'OverallCond'	,'MasVnrArea'	,'MSZoning_RM'	,'HouseStyle_2Story'	,'Exterior2nd_VinylSd'	,'MasVnrType_None'	,'GarageCond_TA'	,'MSSubClass_30'	,'BedroomAbvGr'	,'GarageCond_None'	,'CentralAir_Y'	,'GarageFinish_RFn'	,'GarageQual_None'	,'KitchenQual_Ex'	,'GarageFinish_None'	,'GarageType_None'	,'Neighborhood_CollgCr'	,'Neighborhood_NWAmes'	,'LotShape_IR1'	,'LotShape_Reg'	,'Neighborhood_Gilbert'	,'MasVnrType_Stone'	,'Neighborhood_NoRidge'	,'Neighborhood_NAmes'	,'Foundation_BrkTil'	,'PavedDrive_Y'	,'KitchenQual_Fa'	,'BsmtFinType1_ALQ'	,'Condition1_Feedr'	,'BsmtFinType1_None'	,'BsmtExposure_None'	,'Exterior2nd_Wd Sdng'	,'BsmtFinType2_None'	,'MSZoning_RL'	,'BsmtCond_None'	,'BsmtQual_None'	,'MSSubClass_90'	,'BldgType_Duplex'	,'Electrical_FuseA'	,'EnclosedPorch'	,'Fence_None'	,'ExterQual_Ex'	,'KitchenAbvGr'	,'Neighborhood_Somerst'	,'MSSubClass_160'	,'Electrical_SBrkr']]
 
-y, X = dmatrices('SalePrice ~' + features, x_val, return_type='dataframe')
-X = add_constant(X)
-vif = pd.DataFrame()
-vif["VIF Factor"] = [variance_inflation_factor(X.values, i) for i in range(X.shape[1])]
-vif["features"] = X.columns
-vif.round(1)
+m = RandomForestRegressor(max_features = 0.5,n_estimators = 100 ,oob_score = True,min_samples_leaf=3)
+m.fit(X_train,y_train)
+print_score(m)
 
-# test learning curve
-
-x = train[['GrLivArea','TotRmsAbvGrd','OverallQual','BsmtQual','ExterQual','FirstOrSecond','Foundation','GarageCars','GarageFinish','Neighborhood','MSZoning','Baths','HouseStyle']]
-x = pd.get_dummies(x)
-lr = LinearRegression()
-lr.fit(x,y_train)
-
-train_sizes,train_scores,test_scores = learning_curve(estimator=lr,X=x,y=y_train,train_sizes=np.linspace(0.1,1.0,10),cv=10,n_jobs=1)
+train_sizes,train_scores,test_scores = learning_curve(estimator=m,X=X_train,y=y_train,train_sizes=np.linspace(0.1,1.0,10),cv=10,n_jobs=-1)
 
 train_mean = np.mean(train_scores,axis=1)
 train_std = np.std(train_scores,axis=1)
@@ -297,159 +251,363 @@ plt.grid()
 plt.xlabel('Number of training samples')
 plt.ylabel('Accuracy')
 plt.legend(loc='lower right')
-plt.ylim([0.0,1.1])
+plt.ylim([0.8,1.1])
 plt.show()
 
-# submit pred
+rmsle(X_train,y_train)
+rmsle(X_valid,y_valid)
 
-test['SalePrice'] = y_pred_test
+# check correlated variables
+df_corr_mat = feature_corr_matrix(X_train)
+df_corr_mat = df_corr_mat.dropna(axis='columns',how='all')
+df_corr_mat = df_corr_mat.dropna()
+df_corr_mat = df_corr_mat.values
+corr_condensed = hc.distance.squareform(1-df_corr_mat)
+z = hc.linkage(corr_condensed,method='average')
+fig = plt.figure(figsize =(20,10))
+dendrogram = hc.dendrogram(z,labels= X_train.columns,orientation = 'left',leaf_font_size =8)
+plt.show()
 
-submissions = test[['Id','SalePrice']]
-submissions['SalePrice'] = np.exp(test['SalePrice'])
-submissions['Id'] = submissions['Id'].astype(int)
-submissions.to_csv(current_wd + '\\lr_submissions.csv',encoding='utf-8',index=False)
+# build correlation matrix for manual inspection
+matrix = feature_corr_matrix(X_train)
 
-# try stacked prediction
+# test dropcol_importance for grouped importances ( to ascertain individual drop-ability)
 
-#estlist = [
-       # ('lr',LinearRegression()),
-        #('KneighborsRegressor',KNeighborsRegressor()),
-        # ('GradientBoostingRegressor',GradientBoostingRegressor()),
-        # ('metalr',NonNegativeLinearRegression())
-        # ]
+df = dropcol_importances(m,X_valid,y_valid)
 
-#sm = StackedRegressor(estlist,n_jobs=-1)
-#sm.fit(x,y_train)
+# Investigate correlation on no basement, duplex and MSSubClass 90
 
-y_pred = lm.predict(x_val_test)
+features = [['BsmtCond_None', 'BsmtQual_None', 'BsmtFinType2_None','BsmtExposure_None','BsmtFinType1_None'],  
+            ['BsmtQual_None'], 
+            ['BldgType_Duplex','MSSubClass_90','KitchenAbvGr'],['MSSubClass_90','KitchenAbvGr'],'BldgType_Duplex','MSSubClass_90','KitchenAbvGr']
 
-test['SalePrice'] = y_pred
+I = importances(m, X_valid, y_valid,features = features)
 
-submissions = test[['Id','SalePrice']]
-submissions['SalePrice'] = np.exp(test['SalePrice'])
-submissions['Id'] = submissions['Id'].astype(int)
-submissions.to_csv(current_wd + '\\lr_submissions.csv',encoding='utf-8',index=False)
+X_train.drop(['BsmtCond_None','BsmtQual_None', 'BsmtFinType2_None','BsmtExposure_None','BsmtFinType1_None','MSSubClass_90'],axis=1,inplace=True)
+X_test.drop(['BsmtCond_None', 'BsmtQual_None','BsmtFinType2_None','BsmtExposure_None','BsmtFinType1_None','MSSubClass_90'],axis=1,inplace=True)
+X_valid.drop(['BsmtCond_None', 'BsmtQual_None','BsmtFinType2_None','BsmtExposure_None','BsmtFinType1_None','MSSubClass_90'],axis=1,inplace=True)
 
-# attempt to use random forest to choose best features.
+m = RandomForestRegressor(max_features = 0.5,n_estimators = 150 ,oob_score = True,min_samples_leaf=3)
+m.fit(X_train,y_train)
+print_score(m)
 
-from sklearn.model_selection import GridSearchCV
+features = [['GarageType_None','GarageFinish_None','GarageCond_None'],  
+            ['HouseStyle_2Story','MSSubClass_60'],['Exterior1st_VinylSd','Exterior2nd_VinylSd'],
+            ['BldgType_Duplex','KitchenAbvGr'],'GarageType_None','GarageFinish_None','GarageCond_None','HouseStyle_2Story','MSSubClass_60','Exterior1st_VinylSd','Exterior2nd_VinylSd']
 
-x_val.drop(['SalePrice'],axis=1,inplace=True)
+df = dropcol_importances(m,X_valid,y_valid)
+I = importances(m, X_valid, y_valid,features = features)
 
-min_leaf = [1,2,3,5,6]
-estimators = [50,100,200,300,400,500]
-max_features = ['sqrt','log2',0.5,0.2]
+X_train.drop(['GarageType_None','GarageFinish_None','GarageCond_None','Exterior2nd_VinylSd'],axis=1,inplace=True)
+X_test.drop(['GarageType_None','GarageFinish_None','GarageCond_None','Exterior2nd_VinylSd'],axis=1,inplace=True)
+X_valid.drop(['GarageType_None','GarageFinish_None','GarageCond_None','Exterior2nd_VinylSd'],axis=1,inplace=True)
 
-rf = RandomForestRegressor()
+m = RandomForestRegressor(max_features = 0.5,n_estimators = 150 ,oob_score = True,min_samples_leaf=3)
+m.fit(X_train,y_train)
+print_score(m)
 
-param_grid = [{'n_estimators': estimators,
-               'max_features': max_features,
-               'min_samples_leaf':min_leaf}]
+# examine next set of collinear variables
 
-gs = GridSearchCV(estimator = rf,param_grid=param_grid,
+df = dropcol_importances(m,X_valid,y_valid)
+I = importances(m, X_valid, y_valid,features = features)
+
+features = ['Baths','TotalBsmtSF','GarageCond_TA','HouseStyle_2Story','TotRmsAbvGrd','GrLivArea']
+features = ['TotalSF','GrLivArea','TotalBsmtSF']
+
+feat_list = list_trans(features)
+
+I = importances(m, X_valid, y_valid,features = feat_list)
+
+X_train.drop(['Baths','GarageCond_TA','HouseStyle_2Story'],axis=1,inplace=True)
+X_test.drop(['Baths','GarageCond_TA','HouseStyle_2Story'],axis=1,inplace=True)
+X_valid.drop(['Baths','GarageCond_TA','HouseStyle_2Story'],axis=1,inplace=True)
+
+X_train['TotalSF'] = X_train['GrLivArea'] + X_train['TotalBsmtSF']
+X_valid['TotalSF'] = X_valid['GrLivArea'] + X_valid['TotalBsmtSF']
+X_test['TotalSF'] = X_test['GrLivArea'] + X_test['TotalBsmtSF']
+X_train.drop(['GrLivArea','TotalBsmtSF'],axis=1,inplace=True)
+X_valid.drop(['GrLivArea','TotalBsmtSF'],axis=1,inplace=True)
+X_test.drop(['GrLivArea','TotalBsmtSF'],axis=1,inplace=True)
+
+m = RandomForestRegressor(max_features = 0.5,n_estimators = 150 ,oob_score = True,min_samples_leaf=3)
+m.fit(X_train,y_train)
+print_score(m)
+
+rmsle(X_train,y_train)
+rmsle(X_valid,y_valid)
+
+draw_tree(m.estimators_[0],X_train,precision=3)
+
+df_corr_mat = feature_corr_matrix(X_train)
+df_corr_mat = df_corr_mat.dropna(axis='columns',how='all')
+df_corr_mat = df_corr_mat.dropna()
+df_corr_mat = df_corr_mat.values
+corr_condensed = hc.distance.squareform(1-df_corr_mat)
+z = hc.linkage(corr_condensed,method='average')
+fig = plt.figure(figsize =(20,10))
+dendrogram = hc.dendrogram(z,labels= X_train.columns,orientation = 'left',leaf_font_size =8)
+plt.show()
+
+# examime correlation matrix manually
+
+matrix = feature_corr_matrix(X_train)
+
+features = [['BsmtQual_Ex','ExterQual_Ex','KitchenQual_Ex'],['BsmtQual_Ex','ExterQual_Ex'],['KitchenQual_Ex','ExterQual_Ex'],'BsmtQual_Ex','ExterQual_Ex','KitchenQual_Ex']
+
+df = dropcol_importances(m,X_valid,y_valid)
+I = importances(m, X_valid, y_valid,features = features)
+
+features = [['BsmtQual_Ex','ExterQual_Ex','KitchenQual_Ex','HeatingQC_Ex'],['BsmtQual_Ex','ExterQual_Ex','HeatingQC_Ex'],['KitchenQual_Ex','ExterQual_Ex'],'HeatingQC_Ex','BsmtQual_Ex','ExterQual_Ex','KitchenQual_Ex','ExcellentQuality']
+
+df = dropcol_importances(m,X_valid,y_valid)
+I = importances(m, X_valid, y_valid,features = list_o_lists)
+
+X_train.drop(['BsmtQual_Ex','HeatingQC_Ex'],axis=1,inplace=True)
+X_test.drop(['BsmtQual_Ex','HeatingQC_Ex'],axis=1,inplace=True)
+X_valid.drop(['BsmtQual_Ex','HeatingQC_Ex'],axis=1,inplace=True)
+
+m = RandomForestRegressor(max_features = 0.5,n_estimators = 150 ,oob_score = True,min_samples_leaf=3)
+m.fit(X_train,y_train)
+print_score(m)
+
+# check next set of variables
+df = dropcol_importances(m,X_valid,y_valid)
+
+df_corr_mat = feature_corr_matrix(X_train)
+df_corr_mat = df_corr_mat.dropna(axis='columns',how='all')
+df_corr_mat = df_corr_mat.dropna()
+df_corr_mat = df_corr_mat.values
+corr_condensed = hc.distance.squareform(1-df_corr_mat)
+z = hc.linkage(corr_condensed,method='average')
+fig = plt.figure(figsize =(20,10))
+dendrogram = hc.dendrogram(z,labels= X_train.columns,orientation = 'left',leaf_font_size =8)
+plt.show()
+
+# examine These 8 highly correlated variables
+
+matrix = feature_corr_matrix(X_train)
+
+features = [['Foundation_PConc','YearBuilt','YearRemodAdd','Exterior1st_VinylSd','KitchenQual_Gd','ExterQual_Gd','BsmtQual_Gd']]
+
+feat_list = list_trans(features)
+
+df = dropcol_importances(m,X_valid,y_valid)
+I = importances(m, X_valid, y_valid,features = new_list)
+
+X_train.drop(['BsmtQual_Gd'],axis=1,inplace=True)
+X_test.drop(['BsmtQual_Gd'],axis=1,inplace=True)
+X_valid.drop(['BsmtQual_Gd'],axis=1,inplace=True)
+
+m = RandomForestRegressor(max_features = 0.5,n_estimators = 150 ,oob_score = True,min_samples_leaf=3)
+m.fit(X_train,y_train)
+print_score(m)
+
+rmsle(X_train,y_train)
+rmsle(X_valid,y_valid)
+
+# check TA qualities
+
+features = ['ExterQual_TA','BsmtQual_TA','HeatingQC_TA','KitchenQual_TA']
+
+feat_list = list_trans(features)
+
+df = dropcol_importances(m,X_valid,y_valid)
+I = importances(m, X_valid, y_valid,features = feat_list)
+
+X_train.drop(['BsmtQual_TA', 'HeatingQC_TA'],axis=1,inplace=True)
+X_test.drop(['BsmtQual_TA', 'HeatingQC_TA'],axis=1,inplace=True)
+X_valid.drop(['BsmtQual_TA', 'HeatingQC_TA'],axis=1,inplace=True)
+
+
+m = RandomForestRegressor(max_features = 0.5,n_estimators = 150 ,oob_score = True,min_samples_leaf=3)
+m.fit(X_train,y_train)
+print_score(m)
+
+rmsle(X_train,y_train)
+rmsle(X_valid,y_valid)
+
+df = dropcol_importances(m,X_valid,y_valid)
+
+X_train.drop(['1stFlrSF'],axis=1,inplace=True)
+X_test.drop(['1stFlrSF'],axis=1,inplace=True)
+X_valid.drop(['1stFlrSF'],axis=1,inplace=True)
+
+df = dropcol_importances(m,X_valid,y_valid)
+
+X_train.drop(['MasVnrArea'],axis=1,inplace=True)
+X_test.drop(['MasVnrArea'],axis=1,inplace=True)
+X_valid.drop(['MasVnrArea'],axis=1,inplace=True)
+
+feats = ['LotShape_IR1','Foundation_BrkTil','LotFrontage']
+
+print_score(m)
+
+for f in feats:
+    for r in range (1,12,1):
+        if r == 1:
+            print(f)
+            X_train_copy = X_train.copy()
+            X_valid_copy = X_valid.copy()
+            X_train_copy.drop(f,axis=1)
+            X_valid_copy.drop(f,axis=1)
+            m2 = RandomForestRegressor(max_features = 0.5,n_estimators = 150,min_samples_leaf=3, n_jobs =-1,oob_score = True)
+            m2.fit(X_train_copy,y_train)
+            print_score(m2)
+        elif r != 1:
+            X_train_copy = X_train.copy()
+            X_valid_copy = X_valid.copy()
+            X_train_copy.drop(f,axis=1)
+            X_valid_copy.drop(f,axis=1)
+            m2 = RandomForestRegressor(max_features = 0.5,n_estimators = 150,min_samples_leaf=3, n_jobs =-1,oob_score = True)
+            m2.fit(X_train_copy,y_train)
+            print_score(m2)
+            
+# start dropping in sequence (each run) the highest value oob increase I get from dropping
+            
+X_train.drop(['1stFlrSF'],axis=1,inplace=True)
+X_test.drop(['1stFlrSF'],axis=1,inplace=True)
+X_valid.drop(['1stFlrSF'],axis=1,inplace=True)
+X_train.drop(['MasVnrArea'],axis=1,inplace=True)
+X_test.drop(['MasVnrArea'],axis=1,inplace=True)
+X_valid.drop(['MasVnrArea'],axis=1,inplace=True)
+X_train.drop(['2ndFlrSF'],axis=1,inplace=True)
+X_test.drop(['2ndFlrSF'],axis=1,inplace=True)
+X_valid.drop(['2ndFlrSF'],axis=1,inplace=True)
+X_train.drop(['GarageType_Attchd'],axis=1,inplace=True)
+X_test.drop(['GarageType_Attchd'],axis=1,inplace=True)
+X_valid.drop(['GarageType_Attchd'],axis=1,inplace=True)
+X_train.drop(['GarageFinish_Unf'],axis=1,inplace=True)
+X_test.drop(['GarageFinish_Unf'],axis=1,inplace=True)
+X_valid.drop(['GarageFinish_Unf'],axis=1,inplace=True)
+X_train.drop(['TotRmsAbvGrd'],axis=1,inplace=True)
+X_test.drop(['TotRmsAbvGrd'],axis=1,inplace=True)
+X_valid.drop(['TotRmsAbvGrd'],axis=1,inplace=True)
+X_train.drop(['LotShape_Reg'],axis=1,inplace=True)
+X_test.drop(['LotShape_Reg'],axis=1,inplace=True)
+X_valid.drop(['LotShape_Reg'],axis=1,inplace=True)
+X_train.drop(['KitchenQual_TA','HeatingQC_TA'],axis=1,inplace=True)
+X_test.drop(['KitchenQual_TA','HeatingQC_TA'],axis=1,inplace=True)
+X_valid.drop(['KitchenQual_TA','HeatingQC_TA'],axis=1,inplace=True)
+X_train.drop(['BsmtFinType1_ALQ'],axis=1,inplace=True)
+X_test.drop(['BsmtFinType1_ALQ'],axis=1,inplace=True)
+X_valid.drop(['BsmtFinType1_ALQ'],axis=1,inplace=True)
+X_train.drop(['BsmtFinSF1'],axis=1,inplace=True)
+X_test.drop(['BsmtFinSF1'],axis=1,inplace=True)
+X_valid.drop(['BsmtFinSF1'],axis=1,inplace=True)
+X_train.drop(['Electrical_SBrkr'],axis=1,inplace=True)
+X_test.drop(['Electrical_SBrkr'],axis=1,inplace=True)
+X_valid.drop(['Electrical_SBrkr'],axis=1,inplace=True)
+X_train.drop(['BsmtFinType1_GLQ'],axis=1,inplace=True)
+X_test.drop(['BsmtFinType1_GLQ'],axis=1,inplace=True)
+X_valid.drop(['BsmtFinType1_GLQ'],axis=1,inplace=True)
+X_train.drop(['GarageQual_None'],axis=1,inplace=True)
+X_test.drop(['GarageQual_None'],axis=1,inplace=True)
+X_valid.drop(['GarageQual_None'],axis=1,inplace=True)
+X_train.drop(['MasVnrType_None'],axis=1,inplace=True)
+X_test.drop(['MasVnrType_None'],axis=1,inplace=True)
+X_valid.drop(['MasVnrType_None'],axis=1,inplace=True)
+X_train.drop(['Condition1_Feedr'],axis=1,inplace=True)
+X_test.drop(['Condition1_Feedr'],axis=1,inplace=True)
+X_valid.drop(['Condition1_Feedr'],axis=1,inplace=True)
+X_train.drop(['FireplaceQu_Gd','Electrical_FuseA'],axis=1,inplace=True)
+X_test.drop(['FireplaceQu_Gd','Electrical_FuseA'],axis=1,inplace=True)
+X_valid.drop(['FireplaceQu_Gd','Electrical_FuseA'],axis=1,inplace=True)
+X_train.drop(['FireplaceQu_TA'],axis=1,inplace=True)
+X_test.drop(['FireplaceQu_TA'],axis=1,inplace=True)
+X_valid.drop(['FireplaceQu_TA'],axis=1,inplace=True)
+
+row = X_valid.values[None,0]; row
+prediction,bias,contributions = ti.predict(m,row)
+data = pd.DataFrame([o for o in zip(X_train.columns,X_valid.iloc[0],contributions[0])])
+contributions[0].sum()
+            
+rmsle(X_train,y_train)
+rmsle(X_valid,y_valid)
+
+df_corr_mat = feature_corr_matrix(X_train)
+df_corr_mat = df_corr_mat.dropna(axis='columns',how='all')
+df_corr_mat = df_corr_mat.dropna()
+df_corr_mat = df_corr_mat.values
+corr_condensed = hc.distance.squareform(1-df_corr_mat)
+z = hc.linkage(corr_condensed,method='average')
+fig = plt.figure(figsize =(20,10))
+dendrogram = hc.dendrogram(z,labels= X_train.columns,orientation = 'left',leaf_font_size =8)
+plt.show()
+
+plot_corr_heatmap(X_train)
+
+# test removing 0 mutual information columns
+
+param_range = [0.0001,0.001,0.01,0.1,1.0,10.0,100.0,1000.0]
+
+param_grid = [{'n_estimators': [50,60,70,80,90,100,110,120,130,140,160,170,180,190,200],
+               'max_depth':[3,5,7,9,11,13],
+                 'max_features': [0.3,0.4,0.5],
+                 'min_samples_leaf':[3,5]}]
+
+gs = GridSearchCV(estimator = m,param_grid=param_grid,
                   scoring = 'neg_mean_squared_error',
-                  cv=10,n_jobs=1)
+                  cv=10,n_jobs=-1)
 
-gs = gs.fit(x_val,y_train)
+gs = gs.fit(X_train,y_train)
 gs.best_score_
 gs.best_params_
 
-# build model based off of best params
+m = RandomForestRegressor(max_features = 0.5, n_estimators = 150 ,oob_score = True,min_samples_leaf=3)
+m.fit(X_train,y_train)
+print_score(m)
 
-from fastai.imports import *
 
-x_val.drop(['SalePrice'],axis=1,inplace=True)
-rf = RandomForestRegressor(max_features = 'sqrt',min_samples_leaf = 3, n_estimators = 300,n_jobs =-1,oob_score = True)
-rf.fit(x_val,y_train)
+draw_tree(m.estimators_[0],X_train,precision=3)
 
-# check if highly correlated
+# plot predict vs actual
 
-from scipy.cluster import hierarchy as hc
-from scipy import stats
+import matplotlib.pyplot as plt
 
-feat_labels = x_val.columns
-importances = rf.feature_importances_
+y_pred_train = m.predict(X_train)
+plt.scatter(y_pred_train,y_train)# check how random validation set is
 
-indices = np.argsort(importances)[::-1]
+y_pred_valid = m.predict(X_valid)
+plt.scatter(y_pred_valid,y_valid)# check how random validation set is
 
-for f in range (x_val.shape[1]):
-    print("%2d)%-*s %f" % (f + 1,30,
-         feat_labels[indices[f]],
-         importances[indices[f]]))
+# check to see if validation data set is overfitted or not
 
-# predict with significant variables
+X_valid['Class'] = 1
+X_train['Class'] = 0
 
-df_imp = pd.DataFrame(importances,columns = ['importance'])
-df_imp['Label'] = feat_labels
-df_new = df_imp[df_imp['importance'] > 0.005]
+new_df = pd.concat([X_valid,X_train])
 
-columns = df_new.Label.tolist()
-x_val = x_val[columns]
-x_val['SalePrice'] = y_train
+m = RandomForestClassifier(n_estimators = 40, min_samples_leaf=3, max_features=0.5,n_jobs =-1, oob_score= True)
 
-x_val_test = x_val_test[columns]
+y_val = new_df['Class']
+new_df.drop(['Class'],axis=1,inplace=True)
+m.fit(new_df,y_val)
+m.oob_score_
 
-features = " + ".join(x_val.columns).replace("+ SalePrice","")
+fi = rf_feat_importance(m,new_df); fi[:10]
+feats = ['LotArea','BsmtUnfSF','GarageArea','FirstFlrSF','GarageYrBlt']
+X_valid[feats].describe()
+X_train[feats].describe()
 
-lm = smf.ols(formula = 'SalePrice ~ ' + features ,data = x_val).fit()
+X_valid.drop(['Class'],axis=1,inplace=True)
+X_train.drop(['Class'],axis=1,inplace=True)
 
-print(lm.summary())
+# analyze importance on validation set 
 
-# see where highly correlated
 
-x_val.drop(['SalePrice'],axis=1,inplace=True)
+y_pred = m.predict(X_test)
 
-corr = np.round(stats.spearmanr(x_val).correlation,4)
-corr_condensed = hc.distance.squareform(1-corr)
-z = hc.linkage(corr_condensed,method='average')
-fig = plt.figure(figsize =(16,10))
-dendrogram = hc.dendrogram(z,labels= x_val.columns,orientation = 'left',leaf_font_size =8)
-plt.show()
-
-# test learning curve now
-
-lr = LinearRegression()
-lr.fit(x_val,y_train)
-
-train_sizes,train_scores,test_scores = learning_curve(estimator=lr,X=x_val,y=y_train,train_sizes=np.linspace(0.1,1.0,10),cv=10,n_jobs=1)
-
-train_mean = np.mean(train_scores,axis=1)
-train_std = np.std(train_scores,axis=1)
-test_mean = np.mean(test_scores,axis=1)
-test_std = np.std(test_scores,axis=1)
-
-plt.plot(train_sizes,train_mean,color = 'blue',marker='o',markersize=5,label='training accuracy')
-plt.fill_between(train_sizes,train_mean + train_std,train_mean - train_std,alpha=0.15,color='blue')
-plt.plot(train_sizes,test_mean,color='green',linestyle='--',marker='s',markersize=5,label='validation accuracy')
-plt.fill_between(train_sizes,test_mean + test_std,test_mean - test_std,alpha=0.15,color='blue')
-plt.grid()
-plt.xlabel('Number of training samples')
-plt.ylabel('Accuracy')
-plt.legend(loc='lower right')
-plt.ylim([0.0,1.1])
-plt.show()
-
-# send predictions
-
-y_pred = lm.predict(x_val_test)
-
-test['SalePrice'] = y_pred_2
-
-submissions = test[['Id','SalePrice']]
-submissions['SalePrice'] = np.exp(test['SalePrice'])
+df_test['SalePrice'] = y_pred
+submissions = df_test[['Id','SalePrice']]
 submissions['Id'] = submissions['Id'].astype(int)
 submissions.to_csv(current_wd + '\\lr_submissions.csv',encoding='utf-8',index=False)
 
-# test leverage
 
-influence = lm.get_influence()
-resid_student = influence.resid_studentized_external
-(cooks, p) = influence.cooks_distance
-(dffits, p) = influence.dffits
-leverage = influence.hat_matrix_diag
 
-print('\n')
-print('Leverage v.s. Studentized Residuals')
-sns.regplot(leverage, lm.resid_pearson,  fit_reg=False)   
+
+
+
+
+
 
 
