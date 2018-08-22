@@ -32,15 +32,10 @@ import os
 warnings.filterwarnings('ignore')
 %matplotlib inline
 
-current_loc = os.getcwd()
-
-if 'jjonus' in current_loc:
-    current_wd = ('C:\\Users\\jjonus\\Google Drive\\Kaggle\\Advanced House Prices')
-elif 'jstnj' in current_loc:
-    current_wd = ('C:\\Users\\jstnj\\Google Drive\\Kaggle\\Advanced House Prices')
+url = 'https://github.com/GinoWoz1/AdvancedHousePrices/raw/master/'
     
-df_train = pd.read_csv(current_wd +'\\train.csv')   
-df_test = pd.read_csv(current_wd +'\\test.csv')
+df_train = pd.read_csv(url + 'train.csv')
+df_test = pd.read_csv(url +'test.csv')
 
 df_train.columns.to_series().groupby(df_train.dtypes).groups
 
