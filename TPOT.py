@@ -279,10 +279,7 @@ def rmsle_loss(y_true, y_pred):
 
 rmsle_loss = make_scorer(rmsle_loss,greater_is_better=False)
 
-X_train.drop(['Id'],axis=1,inplace=True)
-X_valid.drop(['Id'],axis=1,inplace=True)
-
-tpot = TPOTRegressor(verbosity=3,scoring=rmsle_loss,generations=10,population_size=50,periodic_checkpoint_folder='C:\\Users\\jjonus\\Google Drive\\Kaggle\\Advanced House Prices')
+tpot = TPOTRegressor(verbosity=3,scoring=rmsle_loss,population_size=200,periodic_checkpoint_folder='C:\\Users\\jjonus\\Google Drive\\Kaggle\\Advanced House Prices')
 tpot.fit(X_train,y_train)
 print(tpot.score(X_valid,y_valid))
 tpot.export('houses_pipeline.py')
