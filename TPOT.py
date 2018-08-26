@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
 """
-Created on Fri Jul  6 10:58:19 2018
+Created on Sat Aug 25 12:05:00 2018
 
 @author: jjonus
 """
+
+#TPOT test
 from sklearn.ensemble import RandomForestRegressor,GradientBoostingRegressor,ExtraTreesRegressor,RandomForestClassifier # Regressor and Classifiers
 from sklearn.model_selection import learning_curve,validation_curve,cross_val_score,GridSearchCV,train_test_split # validation
 from sklearn.feature_selection import  mutual_info_regression # mutual information
@@ -28,6 +30,7 @@ import time
 import config    
 import itertools # create combo list
 import os
+import tpot.metrics
 
 # modeling libraries
 from sklearn.metrics import mean_squared_error, make_scorer
@@ -113,7 +116,12 @@ all_data.loc[1915,'MSZoning'] = 'RM'
 all_data.loc[2250,'MSZoning'] = 'RM'
 all_data.loc[1915,'Utilities'] = 'AllPub'
 all_data.loc[1945,'Utilities'] = 'AllPub'
-
+all_data.loc[2473,'Functional'] = 'Typ'
+all_data.loc[2216,'Functional'] = 'Typ'
+all_data.loc[2489,'SaleType'] = 'WD'
+all_data.loc[2151,'Exterior1st'] = 'Plywood'
+all_data.loc[2151,'Exterior2nd'] = 'Plywood'
+all_data.loc[1379,'Electrical'] = 'SBrkr'
 # analyze which neighborhoods have null data
 
 all_data[pd.isna(all_data['LotFrontage'])].groupby("Neighborhood").size().sort_values(ascending = False)
@@ -229,53 +237,10 @@ all_data['HasPconc'] = np.where(all_data['Foundation'] == "PConc",1,0)
 
 # evaluation metrics and model vetting function
 
-def rmse(x,y): return math.sqrt(((x-y)**2).mean())
-
 def print_score(m):
     res = [rmse(m.predict(X_train),y_train),rmse(m.predict(X_valid),y_valid),m.score(X_train,y_train),m.score(X_valid,y_valid)]
     if hasattr(m,'oob_score_'): res.append(m.oob_score_)
     print(res)
-
-def rmsle(X, y): 
-    y_pred = m.predict(X)
-    assert len(y) == len(y_pred)
-    return np.sqrt(np.mean((np.log(1+y_pred) - np.log(1+y))**2))
-
-def dropcol_importances(rf, X_train, y_train):
-    rf_ = clone(rf)
-    rf_.random_state = 999
-    rf_.fit(X_train, y_train)
-    baseline = rf_.oob_score_
-    imp = []
-    for col in X_train.columns:
-        X = X_train.drop(col, axis=1)
-        rf_ = clone(rf)
-        rf_.random_state = 999
-        rf_.fit(X, y_train)
-        o = rf_.oob_score_
-        imp.append(baseline - o)
-    imp = np.array(imp)
-    I = pd.DataFrame(
-            data={'Feature':X_train.columns,
-                  'Importance':imp})
-    I = I.set_index('Feature')
-    I = I.sort_values('Importance', ascending=True)
-    return I
-
-# combination function
-    
-def list_trans(features):
-    list_o_lists = []
-    for c in range(1,len(features)+1):
-        print(c)
-        data =  list(itertools.combinations(features,c))
-        list_o_lists.append(data)
-    new_list = [[]]
-    for i in list(list_o_lists):
-        for c in i:
-            new_list.append(c)
-    new_list = [x for x in new_list if x]
-    return new_list
 
 train = all_data[:ntrain]
 test = all_data[ntrain:]
@@ -293,404 +258,87 @@ test['LotFrontage'] = Imputed_dataframe_test['LotFrontage']
 
 X_train,X_valid,y_train,y_valid = train_test_split(train,y_train,test_size=0.25,random_state=1)
 
-y_valid = pd.Series(y_valid)
-y_train = pd.Series(y_train)
-
-X_test = test.copy()
-X_train = pd.get_dummies(X_train)
-X_test = pd.get_dummies(X_test)
+X_train= pd.get_dummies(X_train)
 X_valid = pd.get_dummies(X_valid)
+X_test = pd.get_dummies(test)
 
-sns.distplot(y_train)
-sns.distplot(y_valid)
-fig = plt.figure()
+# test TPOT
+import xgboost as xgb
+from xgboost import XGBRegressor
+from tpot import TPOTRegressor
 
-# gather mutual information from the data set
-
-new_dict = {}
-
-for c in column_list:
-    Xmi_train = X_train[[c]]
-    mi = mutual_info_regression(Xmi_train,y_train)
-    new_dict[c] = sum(mi)
-
-column_list = X_valid.columns.tolist()
-
-new_dict2 = {}
-
-for c in column_list:
-    Xmi_valid = X_valid[[c]]
-    mi = mutual_info_regression(Xmi_valid,y_valid)
-    new_dict2[c] = sum(mi)
-
-# test the structure of the trees
-m = RandomForestRegressor(max_features = 0.5,n_estimators = 150 ,oob_score = True,min_samples_leaf=3)
-m.fit(X_train,y_train)
-print(m.oob_score_)
-
-# examine tree
-draw_tree(m.estimators_[0],X_train,precision=3)
-
-# mutual information data
-current_loc = os.getcwd()
-
-if 'jjonus' in current_loc:
-    current_wd = ('C:\\Users\\jjonus\\Google Drive\\Kaggle\\Advanced House Prices')
-elif 'jstnj' in current_loc:
-    current_wd = ('C:\\Users\\jstnj\\Google Drive\\Kaggle\\Advanced House Prices')
-    
-df_mi1 = pd.DataFrame.from_dict(new_dict,orient = 'index')
-df_mi2 = pd.DataFrame.from_dict(new_dict2,orient= 'index')
-
-df_mi1.to_csv(current_wd + '\\mi1.csv')
-df_mi2.to_csv(current_wd + '\\mi2.csv')
-
- 
 X_train = X_train[['TotalBsmtSF','KitchenExterQual','GarageArea','GarageCars','GrLivArea','KitchenQual','Baths','BsmtQual','ExterQual','FullBath','GarageYrBlt','YearBuilt','YearBuiltRev','1stFlrSF','LotFrontage','FireplaceQu','YearRemodAdd','Foundation_PConc','HasPconc','TotRmsAbvGrd','Fireplaces','HeatingQC','BsmtFinSF1','HasFireplaces','GarageFinish_Unf','HasOpenPorchSF','NeighGroup_NNS','GarageFinish_Fin','OverallCond','GarageType_Attchd','BsmtUnfSF','NeighGroup_BlueSwis','HeatingEx','GarageType_Detchd','MSSubClass_60','Foundation_CBlock','2ndFlrSF','GarageQual','Exterior2nd_VinylSd','NeighGroup_BEO','GarageCond','Exterior1st_VinylSd','BsmtFinType1_GLQ','Neighborhood_NAmes','SaleCondition_Partial','LotShape_Reg','SaleType_New','Neighborhood_NridgHt','HasWoodDeckSF','HasMasVnrArea','MasVnrType_None','LotArea','NeighGroup_STV','GarageFinish_RFn','MSSubClass_30','MasVnrArea','MSZoning_RM','CentralAir_N','NeighGroup_BNS','HalfBathTransformed','HalfBath','HasGarageArea','Electrical_SBrkr','WoodDeckSF','GarageFinish_None','LotShape_IR1','NeighGroup_C3','BsmtCond','MSZoning_RL','GarageType_None','CentralAir_Y','Neighborhood_CollgCr','Neighborhood_NoRidge','Neighborhood_Gilbert','HasVnrStone','MasVnrType_Stone','NeighGroup_BrMeadow','BedroomAbvGr','Electrical_FuseA','Foundation_BrkTil','HouseStyle_2Story','BsmtExposure_Gd','Exterior1st_Wd Sdng','MasVnrType_BrkFace','Neighborhood_OldTown','PavedDrive_N','RoofStyle_Gable','Fence_MnPrv','Fence_None','Neighborhood_BrkSide','BsmtFinType1_ALQ']]
 X_valid = X_valid[['TotalBsmtSF','KitchenExterQual','GarageArea','GarageCars','GrLivArea','KitchenQual','Baths','BsmtQual','ExterQual','FullBath','GarageYrBlt','YearBuilt','YearBuiltRev','1stFlrSF','LotFrontage','FireplaceQu','YearRemodAdd','Foundation_PConc','HasPconc','TotRmsAbvGrd','Fireplaces','HeatingQC','BsmtFinSF1','HasFireplaces','GarageFinish_Unf','HasOpenPorchSF','NeighGroup_NNS','GarageFinish_Fin','OverallCond','GarageType_Attchd','BsmtUnfSF','NeighGroup_BlueSwis','HeatingEx','GarageType_Detchd','MSSubClass_60','Foundation_CBlock','2ndFlrSF','GarageQual','Exterior2nd_VinylSd','NeighGroup_BEO','GarageCond','Exterior1st_VinylSd','BsmtFinType1_GLQ','Neighborhood_NAmes','SaleCondition_Partial','LotShape_Reg','SaleType_New','Neighborhood_NridgHt','HasWoodDeckSF','HasMasVnrArea','MasVnrType_None','LotArea','NeighGroup_STV','GarageFinish_RFn','MSSubClass_30','MasVnrArea','MSZoning_RM','CentralAir_N','NeighGroup_BNS','HalfBathTransformed','HalfBath','HasGarageArea','Electrical_SBrkr','WoodDeckSF','GarageFinish_None','LotShape_IR1','NeighGroup_C3','BsmtCond','MSZoning_RL','GarageType_None','CentralAir_Y','Neighborhood_CollgCr','Neighborhood_NoRidge','Neighborhood_Gilbert','HasVnrStone','MasVnrType_Stone','NeighGroup_BrMeadow','BedroomAbvGr','Electrical_FuseA','Foundation_BrkTil','HouseStyle_2Story','BsmtExposure_Gd','Exterior1st_Wd Sdng','MasVnrType_BrkFace','Neighborhood_OldTown','PavedDrive_N','RoofStyle_Gable','Fence_MnPrv','Fence_None','Neighborhood_BrkSide','BsmtFinType1_ALQ']]
 X_test = X_test[['TotalBsmtSF','KitchenExterQual','GarageArea','GarageCars','GrLivArea','KitchenQual','Baths','BsmtQual','ExterQual','FullBath','GarageYrBlt','YearBuilt','YearBuiltRev','1stFlrSF','LotFrontage','FireplaceQu','YearRemodAdd','Foundation_PConc','HasPconc','TotRmsAbvGrd','Fireplaces','HeatingQC','BsmtFinSF1','HasFireplaces','GarageFinish_Unf','HasOpenPorchSF','NeighGroup_NNS','GarageFinish_Fin','OverallCond','GarageType_Attchd','BsmtUnfSF','NeighGroup_BlueSwis','HeatingEx','GarageType_Detchd','MSSubClass_60','Foundation_CBlock','2ndFlrSF','GarageQual','Exterior2nd_VinylSd','NeighGroup_BEO','GarageCond','Exterior1st_VinylSd','BsmtFinType1_GLQ','Neighborhood_NAmes','SaleCondition_Partial','LotShape_Reg','SaleType_New','Neighborhood_NridgHt','HasWoodDeckSF','HasMasVnrArea','MasVnrType_None','LotArea','NeighGroup_STV','GarageFinish_RFn','MSSubClass_30','MasVnrArea','MSZoning_RM','CentralAir_N','NeighGroup_BNS','HalfBathTransformed','HalfBath','HasGarageArea','Electrical_SBrkr','WoodDeckSF','GarageFinish_None','LotShape_IR1','NeighGroup_C3','BsmtCond','MSZoning_RL','GarageType_None','CentralAir_Y','Neighborhood_CollgCr','Neighborhood_NoRidge','Neighborhood_Gilbert','HasVnrStone','MasVnrType_Stone','NeighGroup_BrMeadow','BedroomAbvGr','Electrical_FuseA','Foundation_BrkTil','HouseStyle_2Story','BsmtExposure_Gd','Exterior1st_Wd Sdng','MasVnrType_BrkFace','Neighborhood_OldTown','PavedDrive_N','RoofStyle_Gable','Fence_MnPrv','Fence_None','Neighborhood_BrkSide','BsmtFinType1_ALQ']]
 
-m = RandomForestRegressor(max_features = 0.5,n_estimators = 100 ,oob_score = True,min_samples_leaf=3)
-m.fit(X_train,y_train)
-print_score(m)
 
-rmsle(X_train,y_train)
-rmsle(X_valid,y_valid)
+def rmsle_loss(y_true, y_pred):
+	assert len(y_true) == len(y_pred)
+	terms_to_sum = [(math.log(y_pred[i] + 1) - math.log(y_true[i] + 1)) ** 2.0 for i,pred in enumerate(y_pred)]
+	return (sum(terms_to_sum) * (1.0/len(y_true))) ** 0.5
 
-# check correlated variables
-df_corr_mat = feature_corr_matrix(X_train)
-df_corr_mat = df_corr_mat.dropna(axis='columns',how='all')
-df_corr_mat = df_corr_mat.dropna()
-df_corr_mat = df_corr_mat.values
-corr_condensed = hc.distance.squareform(1-df_corr_mat)
-z = hc.linkage(corr_condensed,method='average')
-fig = plt.figure(figsize =(20,10))
-dendrogram = hc.dendrogram(z,labels= X_train.columns,orientation = 'left',leaf_font_size =8)
-plt.show()
+rmsle_loss = make_scorer(rmsle_loss,greater_is_better=False)
 
-# build correlation matrix for manual inspection
+X_train.drop(['Id'],axis=1,inplace=True)
+X_valid.drop(['Id'],axis=1,inplace=True)
 
-#matrix = feature_corr_matrix(X_train)
+tpot = TPOTRegressor(verbosity=3,scoring=rmsle_loss,generations=10,population_size=50,periodic_checkpoint_folder='C:\\Users\\jjonus\\Google Drive\\Kaggle\\Advanced House Prices')
+tpot.fit(X_train,y_train)
+print(tpot.score(X_valid,y_valid))
+tpot.export('houses_pipeline.py')
 
-# Investigate correlation on no basement, duplex and MSSubClass 90
+from sklearn.ensemble import ExtraTreesRegressor
+from sklearn.linear_model import LassoLarsCV
+from sklearn.model_selection import train_test_split
+from sklearn.pipeline import make_pipeline, make_union
+from tpot.builtins import StackingEstimator
+from sklearn.svm import LinearSVR
+from sklearn.preprocessing import MinMaxScaler, PolynomialFeatures
 
-features = ['HasFireplaces','Fireplaces','FireplaceQu']
-feat_list = list_trans(features)
-I = importances(m, X_valid, y_valid,features = feat_list)
+exported_pipeline = make_pipeline(
+    MinMaxScaler(),
+    PolynomialFeatures(degree=2, include_bias=False, interaction_only=False),
+    GradientBoostingRegressor(alpha=0.75, learning_rate=0.1, loss="ls", max_depth=4, max_features=0.6000000000000001, min_samples_leaf=2, min_samples_split=2, n_estimators=100, subsample=0.8500000000000001)
+)
+
+exported_pipeline.fit(X_train,y_train)
+print_score(exported_pipeline)
+
+y_pred = exported_pipeline.predict(X_test)
+df_test['SalePrice'] = y_pred
+submissions = df_test[['Id','SalePrice']]
+submissions['Id'] = submissions['Id'].astype(int)
+submissions.to_csv(current_wd + '\\lr_submissions.csv',encoding='utf-8',index=False)
+
+# highest score .142 - highest so far in my attempts. Try with correlated predictors removed. 
 
 X_train.drop(['HasFireplaces'],axis=1,inplace=True)
 X_test.drop(['HasFireplaces'],axis=1,inplace=True)
 X_valid.drop(['HasFireplaces'],axis=1,inplace=True)
-
-
-m = RandomForestRegressor(max_features = 0.5,n_estimators = 150 ,oob_score = True,min_samples_leaf=3)
-m.fit(X_train,y_train)
-print_score(m)
-
-# Saletype and condition
-
-features = ['Exterior1st_VinylSd','Exterior2nd_VinylSd']
-feat_list = list_trans(features)
-I = importances(m, X_valid, y_valid,features = feat_list)
-
 X_train.drop(['HalfBath','HalfBathTransformed'],axis=1,inplace=True)
 X_test.drop(['HalfBath','HalfBathTransformed'],axis=1,inplace=True)
 X_valid.drop(['HalfBath','HalfBathTransformed'],axis=1,inplace=True)
 X_train.drop(['Exterior2nd_VinylSd'],axis=1,inplace=True)
 X_test.drop(['Exterior2nd_VinylSd'],axis=1,inplace=True)
 X_valid.drop(['Exterior2nd_VinylSd'],axis=1,inplace=True)
-
-m = RandomForestRegressor(max_features = 0.5,n_estimators = 150 ,oob_score = True,min_samples_leaf=3)
-m.fit(X_train,y_train)
-print_score(m)
-
-# Heating
-
-features = ['HeatingQC','HeatingEx']
-feat_list = list_trans(features)
-I = importances(m, X_valid, y_valid,features = feat_list)
-
 X_train.drop(['HeatingEx'],axis=1,inplace=True)
 X_test.drop(['HeatingEx'],axis=1,inplace=True)
 X_valid.drop(['HeatingEx'],axis=1,inplace=True)
-
-#MasVnrArea
-
-features = ['MasVnrArea','HasMasVnrArea','MasVnrType_Stone']
-feat_list = list_trans(features)
-I = importances(m, X_valid, y_valid,features = feat_list)
-
 X_train.drop(['HasMasVnrArea','MasVnrType_Stone'],axis=1,inplace=True)
 X_test.drop(['HasMasVnrArea','MasVnrType_Stone'],axis=1,inplace=True)
 X_valid.drop(['HasMasVnrArea','MasVnrType_Stone'],axis=1,inplace=True)
-
-# Wood deck
-
-features = ['WoodDeckSF','HasWoodDeckSF']
-feat_list = list_trans(features)
-I = importances(m, X_valid, y_valid,features = feat_list)
-
 X_train.drop(['HasWoodDeckSF'],axis=1,inplace=True)
 X_test.drop(['HasWoodDeckSF'],axis=1,inplace=True)
 X_valid.drop(['HasWoodDeckSF'],axis=1,inplace=True)
-
-# YearBuilt
-
-features = ['YearBuilt','YearBuiltRev','GarageYrBlt']
-feat_list = list_trans(features)
-I = importances(m, X_valid, y_valid,features = feat_list)
-
 X_train.drop(['GarageYrBlt','YearBuiltRev'],axis=1,inplace=True)
 X_test.drop(['GarageYrBlt','YearBuiltRev'],axis=1,inplace=True)
 X_valid.drop(['GarageYrBlt','YearBuiltRev'],axis=1,inplace=True)
-
-# Garage,Finish type none
-
-features = ['GarageType_None','GarageFinish_None']
-feat_list = list_trans(features)
-I = importances(m, X_valid, y_valid,features = feat_list)
-
 X_train.drop(['GarageFinish_None','GarageType_None'],axis=1,inplace=True)
 X_test.drop(['GarageFinish_None','GarageType_None'],axis=1,inplace=True)
 X_valid.drop(['GarageFinish_None','GarageType_None'],axis=1,inplace=True)
-
-m = RandomForestRegressor(max_features = 0.5,n_estimators = 150 ,oob_score = True,min_samples_leaf=3)
-m.fit(X_train,y_train)
-print_score(m)
-
-# Quality variables
-
-features = ['KitchenQual','KitchenExterQual','ExterQual']
-feat_list = list_trans(features)
-I = importances(m, X_valid, y_valid,features = feat_list)
-
-X_train.drop(['KitchenQual'],axis=1,inplace=True)
-X_test.drop(['KitchenQual'],axis=1,inplace=True)
-X_valid.drop(['KitchenQual'],axis=1,inplace=True)
-
-# examine next set of collinear variables
-
-df = dropcol_importances(m,X_valid,y_valid)
-I = importances(m, X_valid, y_valid,features = features)
-
-# after this, the important created variable is scoring low but there is high collinearity with the 3rd variable of exterqual - need to examine.
-
-features = ['KitchenExterQual','ExterQual']
-feat_list = list_trans(features)
-I = importances(m, X_valid, y_valid,features = feat_list)
-
-# more important variable is not the KitchenExterQual one but the other - correlation led to misinterpration
-
-X_train.drop(['ExterQual'],axis=1,inplace=True)
-X_test.drop(['ExterQual'],axis=1,inplace=True)
-X_valid.drop(['ExterQual'],axis=1,inplace=True)
-
-# dropcol again
-df = dropcol_importances(m,X_valid,y_valid)
-
-# GarageFinish_Unf Test negative collinearity as well
-features = ['GarageFinish_Unf','GarageType_Detchd']
-feat_list = list_trans(features)
-I = importances(m, X_valid, y_valid,features = feat_list)
-
-X_train.drop(['ExterQual'],axis=1,inplace=True)
-X_test.drop(['ExterQual'],axis=1,inplace=True)
-X_valid.drop(['ExterQual'],axis=1,inplace=True)
-
-# check Exterior1st Vinyld sd with correlations of .56 on a few variables
-
-features = ['Exterior1st_VinylSd','YearBuilt','YearRemodAdd','Foundation_PConc','HasPconc','HeatingQC']
-feat_list = list_trans(features)
-I = importances(m, X_valid, y_valid,features = feat_list)
-
-# Garage
-features = ['GarageQual','GarageCond','HasGarageArea']
-feat_list = list_trans(features)
-I = importances(m, X_valid, y_valid,features = feat_list)
-
-X_train.drop(['HasGarageArea'],axis=1,inplace=True)
-X_test.drop(['HasGarageArea'],axis=1,inplace=True)
-X_valid.drop(['HasGarageArea'],axis=1,inplace=True)
-
-# Neighborhood_NridgeHt
-
-features = ['Neighborhood_NridgHt','NeighGroup_NNS']
-feat_list = list_trans(features)
-I = importances(m, X_valid, y_valid,features = feat_list)
-
-X_train.drop(['Neighborhood_NridgHt'],axis=1,inplace=True)
-X_test.drop(['Neighborhood_NridgHt'],axis=1,inplace=True)
-X_valid.drop(['Neighborhood_NridgHt'],axis=1,inplace=True)
-
-#MasVnrArea and Other correlated variable
-
-features = ['MasVnrArea','MasVnrType_BrkFace']
-feat_list = list_trans(features)
-I = importances(m, X_valid, y_valid,features = feat_list)
-
-X_train.drop(['MasVnrType_BrkFace'],axis=1,inplace=True)
-X_test.drop(['MasVnrType_BrkFace'],axis=1,inplace=True)
-X_valid.drop(['MasVnrType_BrkFace'],axis=1,inplace=True)
-
-# garageArea and cars
-
-features = ['GarageArea','GarageCars']
-feat_list = list_trans(features)
-I = importances(m, X_valid, y_valid,features = feat_list)
-
-X_train.drop(['MasVnrType_BrkFace'],axis=1,inplace=True)
-X_test.drop(['MasVnrType_BrkFace'],axis=1,inplace=True)
-X_valid.drop(['MasVnrType_BrkFace'],axis=1,inplace=True)
-
-# Pconc
-
-features = ['Foundation_PConc','HasPconc']
-feat_list = list_trans(features)
-I = importances(m, X_valid, y_valid,features = feat_list)
-
 X_train.drop(['HasPconc'],axis=1,inplace=True)
 X_test.drop(['HasPconc'],axis=1,inplace=True)
 X_valid.drop(['HasPconc'],axis=1,inplace=True)
-
-# Oldtown
-
-features = ['Neighborhood_OldTown','NeighGroup_BEO']
-feat_list = list_trans(features)
-I = importances(m, X_valid, y_valid,features = feat_list)
-
-#Bsmt  Qual
-
-features = ['Fireplaces','FireplaceQU']
-feat_list = list_trans(features)
-I = importances(m, X_valid, y_valid,features = feat_list)
-
-# rooms
-
-#Bsmt  Qual
-
-features = ['YearRemodAdd','YearBuilt','KitchenExterQual']
-feat_list = list_trans(features)
-I = importances(m, X_valid, y_valid,features = feat_list)
-
-X_train.drop(['MasVnrType_BrkFace'],axis=1,inplace=True)
-X_test.drop(['MasVnrType_BrkFace'],axis=1,inplace=True)
-X_valid.drop(['MasVnrType_BrkFace'],axis=1,inplace=True)
-
-m = RandomForestRegressor(max_features = 0.5,n_estimators = 150 ,oob_score = True,min_samples_leaf=3)
-m.fit(X_train,y_train)
-print_score(m)
-
-# test variables
-feats = ['MSSubClass_30']
-
-print_score(m)
-
-for f in feats:
-    for r in range (1,12,1):
-        if r == 1:
-            print(f)
-            X_train_copy = X_train.copy()
-            X_valid_copy = X_valid.copy()
-            X_train_copy.drop(f,axis=1)
-            X_valid_copy.drop(f,axis=1)
-            m2 = RandomForestRegressor(max_features = 0.5,n_estimators = 150,min_samples_leaf=3, n_jobs =-1,oob_score = True)
-            m2.fit(X_train_copy,y_train)
-            print_score(m2)
-        elif r != 1:
-            X_train_copy = X_train.copy()
-            X_valid_copy = X_valid.copy()
-            X_train_copy.drop(f,axis=1)
-            X_valid_copy.drop(f,axis=1)
-            m2 = RandomForestRegressor(max_features = 0.5,n_estimators = 150,min_samples_leaf=3, n_jobs =-1,oob_score = True)
-            m2.fit(X_train_copy,y_train)
-            print_score(m2)
-    
-# drop as needed
-
-X_train.drop(['GarageType_Detchd'],axis=1,inplace=True)
-X_test.drop(['GarageType_Detchd'],axis=1,inplace=True)
-X_valid.drop(['GarageType_Detchd'],axis=1,inplace=True)
-X_train.drop(['GarageFinish_RFn'],axis=1,inplace=True)
-X_test.drop(['GarageFinish_RFn'],axis=1,inplace=True)
-X_valid.drop(['GarageFinish_RFn'],axis=1,inplace=True)
-X_train.drop(['ExterQual'],axis=1,inplace=True)
-X_test.drop(['ExterQual'],axis=1,inplace=True)
-X_valid.drop(['ExterQual'],axis=1,inplace=True)
-X_train.drop(['Exterior1st_VinylSd'],axis=1,inplace=True)
-X_test.drop(['Exterior1st_VinylSd'],axis=1,inplace=True)
-X_valid.drop(['Exterior1st_VinylSd'],axis=1,inplace=True)
-X_train.drop(['MasVnrArea'],axis=1,inplace=True)
-X_test.drop(['MasVnrArea'],axis=1,inplace=True)
-X_valid.drop(['MasVnrArea'],axis=1,inplace=True)
-X_train.drop(['Neighborhood_BrkSide'],axis=1,inplace=True)
-X_test.drop(['Neighborhood_BrkSide'],axis=1,inplace=True)
-X_valid.drop(['Neighborhood_BrkSide'],axis=1,inplace=True)
-X_train.drop(['Neighborhood_BrkSide'],axis=1,inplace=True)
-X_test.drop(['Neighborhood_BrkSide'],axis=1,inplace=True)
-X_valid.drop(['Neighborhood_BrkSide'],axis=1,inplace=True)
-X_train.drop(['LotShape_Reg'],axis=1,inplace=True)
-X_test.drop(['LotShape_Reg'],axis=1,inplace=True)
-X_valid.drop(['LotShape_Reg'],axis=1,inplace=True)
-X_train.drop(['YearRemodAdd'],axis=1,inplace=True)
-X_test.drop(['YearRemodAdd'],axis=1,inplace=True)
-X_valid.drop(['YearRemodAdd'],axis=1,inplace=True)
-
-row = X_valid.values[None,0]; row
-prediction,bias,contributions = ti.predict(m,row)
-data = pd.DataFrame([o for o in zip(X_train.columns,X_valid.iloc[0],contributions[0])])
-contributions[0].sum()
-            
-rmsle(X_train,y_train)
-rmsle(X_valid,y_valid)
-
-df_corr_mat = feature_corr_matrix(X_train)
-df_corr_mat = df_corr_mat.dropna(axis='columns',how='all')
-df_corr_mat = df_corr_mat.dropna()
-df_corr_mat = df_corr_mat.values
-corr_condensed = hc.distance.squareform(1-df_corr_mat)
-z = hc.linkage(corr_condensed,method='average')
-fig = plt.figure(figsize =(20,10))
-dendrogram = hc.dendrogram(z,labels= X_train.columns,orientation = 'left',leaf_font_size =8)
-plt.show()
-
-plot_corr_heatmap(X_train)
-
-# check to see if validation data set is overfitted or not
-
-X_valid['Class'] = 1
-X_train['Class'] = 0
-
-new_df = pd.concat([X_valid,X_train])
-
-m = RandomForestClassifier(n_estimators = 40, min_samples_leaf=3, max_features=0.5,n_jobs =-1, oob_score= True)
-
-y_val = new_df['Class']
-new_df.drop(['Class'],axis=1,inplace=True)
-m.fit(new_df,y_val)
-m.oob_score_
-
-fi = rf_feat_importance(m,new_df); fi[:10]
-feats = ['LotArea','BsmtUnfSF','GarageArea','FirstFlrSF','GarageYrBlt']
-X_valid[feats].describe()
-X_train[feats].describe()
-
-X_valid.drop(['Class'],axis=1,inplace=True)
-X_train.drop(['Class'],axis=1,inplace=True)
-
-# submit predictions
-
-y_pred = m.predict(X_test)
-df_test['SalePrice'] = y_pred
-submissions = df_test[['Id','SalePrice']]
-submissions['Id'] = submissions['Id'].astype(int)
-submissions.to_csv(current_wd + '\\lr_submissions.csv',encoding='utf-8',index=False)
-
-
-
-
-
-
-
-
-
-
+X_train.drop(['HasGarageArea'],axis=1,inplace=True)
+X_test.drop(['HasGarageArea'],axis=1,inplace=True)
+X_valid.drop(['HasGarageArea'],axis=1,inplace=True)
