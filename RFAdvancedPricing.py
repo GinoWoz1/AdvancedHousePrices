@@ -332,12 +332,6 @@ print(m.oob_score_)
 draw_tree(m.estimators_[0],X_train,precision=3)
 
 # mutual information data
-current_loc = os.getcwd()
-
-if 'jjonus' in current_loc:
-    current_wd = ('C:\\Users\\jjonus\\Google Drive\\Kaggle\\Advanced House Prices')
-elif 'jstnj' in current_loc:
-    current_wd = ('C:\\Users\\jstnj\\Google Drive\\Kaggle\\Advanced House Prices')
     
 df_mi1 = pd.DataFrame.from_dict(new_dict,orient = 'index')
 df_mi2 = pd.DataFrame.from_dict(new_dict2,orient= 'index')

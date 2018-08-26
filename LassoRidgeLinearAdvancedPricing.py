@@ -820,13 +820,6 @@ ensemble_pred = (np.array(lass_pred) + np.array(ridge_pred) + np.array(el_pred) 
 
 # submit pred
 
-current_loc = os.getcwd()
-
-if 'jjonus' in current_loc:
-    current_wd = ('C:\\Users\\jjonus\\Google Drive\\Kaggle\\Advanced House Prices')
-elif 'jstnj' in current_loc:
-    current_wd = ('C:\\Users\\jstnj\\Google Drive\\Kaggle\\Advanced House Prices')
-    
 test['SalePrice'] = y_pred
 submissions = test[['Id','SalePrice']]
 submissions['SalePrice'] = np.exp(test['SalePrice'])
