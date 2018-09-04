@@ -12,7 +12,7 @@ import pandas as pd
 
 warnings.filterwarnings('ignore')
     
-# load in data from jfunc file
+# load in data
 
 url = 'https://github.com/GinoWoz1/AdvancedHousePrices/raw/master/'
         
