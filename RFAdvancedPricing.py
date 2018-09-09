@@ -28,6 +28,7 @@ import time
 import config    
 import itertools # create combo list
 import os
+from jfunc import find_outliers
 
 # modeling libraries
 from sklearn.metrics import mean_squared_error, make_scorer
@@ -41,9 +42,10 @@ import statsmodels.formula.api as smf
 from statsmodels.stats.outliers_influence import variance_inflation_factor
 from patsy import dmatrices
 from statsmodels.tools.tools import add_constant
-
+from math import ceil
 
 warnings.filterwarnings('ignore')
+
 %matplotlib inline
 
 url = 'https://github.com/GinoWoz1/AdvancedHousePrices/raw/master/'
@@ -231,15 +233,14 @@ all_data['HasPconc'] = np.where(all_data['Foundation'] == "PConc",1,0)
 
 def rmse(x,y): return math.sqrt(((x-y)**2).mean())
 
-def print_score(m):
-    res = [rmse(m.predict(X_train),y_train),rmse(m.predict(X_valid),y_valid),m.score(X_train,y_train),m.score(X_valid,y_valid)]
-    if hasattr(m,'oob_score_'): res.append(m.oob_score_)
-    print(res)
-
-def rmsle(X, y): 
-    y_pred = m.predict(X)
+def rmsle(y, y_pred): 
     assert len(y) == len(y_pred)
     return np.sqrt(np.mean((np.log(1+y_pred) - np.log(1+y))**2))
+
+def print_score(m):
+    res = [rmsle(m.predict(X_train),y_train),rmsle(m.predict(X_valid),y_valid),m.score(X_train,y_train),m.score(X_valid,y_valid)]
+    if hasattr(m,'oob_score_'): res.append(m.oob_score_)
+    print(res)
 
 def dropcol_importances(rf, X_train, y_train):
     rf_ = clone(rf)
@@ -297,7 +298,12 @@ y_valid = pd.Series(y_valid)
 y_train = pd.Series(y_train)
 
 X_test = test.copy()
-X_train = pd.get_dummies(X_train)
+X_train = pd.get_dummies(X_train).reset_index()
+
+outliers = find_outliers(Ridge(),X_train,y_train)
+X_train = X_train.drop(outliers)
+y_train = y_train.drop(outliers)
+
 X_test = pd.get_dummies(X_test)
 X_valid = pd.get_dummies(X_valid)
 
@@ -306,6 +312,8 @@ sns.distplot(y_valid)
 fig = plt.figure()
 
 # gather mutual information from the data set
+
+column_list = X_train.columns.tolist()
 
 new_dict = {}
 
@@ -324,7 +332,7 @@ for c in column_list:
     new_dict2[c] = sum(mi)
 
 # test the structure of the trees
-m = RandomForestRegressor(max_features = 0.5,n_estimators = 150 ,oob_score = True,min_samples_leaf=3)
+m = RandomForestRegressor(max_features = 0.5,n_estimators = 60 ,oob_score = True,min_samples_leaf=3)
 m.fit(X_train,y_train)
 print(m.oob_score_)
 
@@ -377,11 +385,21 @@ X_test.drop(['HasFireplaces'],axis=1,inplace=True)
 X_valid.drop(['HasFireplaces'],axis=1,inplace=True)
 
 
-m = RandomForestRegressor(max_features = 0.5,n_estimators = 150 ,oob_score = True,min_samples_leaf=3)
+m = RandomForestRegressor(max_features = 0.5,n_estimators = 50 ,oob_score = True,min_samples_leaf=3)
 m.fit(X_train,y_train)
 print_score(m)
 
 # Saletype and condition
+
+
+features = ['SaleType_New','SaleCondition_Partial']
+feat_list = list_trans(features)
+I = importances(m, X_valid, y_valid,features = feat_list)
+
+X_train.drop(['SaleType_New','SaleCondition_Partial'],axis=1,inplace=True)
+X_test.drop(['SaleType_New','SaleCondition_Partial'],axis=1,inplace=True)
+X_valid.drop(['SaleType_New','SaleCondition_Partial'],axis=1,inplace=True)
+
 
 features = ['Exterior1st_VinylSd','Exterior2nd_VinylSd']
 feat_list = list_trans(features)
@@ -394,7 +412,7 @@ X_train.drop(['Exterior2nd_VinylSd'],axis=1,inplace=True)
 X_test.drop(['Exterior2nd_VinylSd'],axis=1,inplace=True)
 X_valid.drop(['Exterior2nd_VinylSd'],axis=1,inplace=True)
 
-m = RandomForestRegressor(max_features = 0.5,n_estimators = 150 ,oob_score = True,min_samples_leaf=3)
+m = RandomForestRegressor(max_features = 0.5,n_estimators = 59,oob_score = True,min_samples_leaf=3)
 m.fit(X_train,y_train)
 print_score(m)
 
@@ -448,7 +466,7 @@ X_train.drop(['GarageFinish_None','GarageType_None'],axis=1,inplace=True)
 X_test.drop(['GarageFinish_None','GarageType_None'],axis=1,inplace=True)
 X_valid.drop(['GarageFinish_None','GarageType_None'],axis=1,inplace=True)
 
-m = RandomForestRegressor(max_features = 0.5,n_estimators = 150 ,oob_score = True,min_samples_leaf=3)
+m = RandomForestRegressor(max_features = 0.5,n_estimators = 50 ,oob_score = True,min_samples_leaf=3)
 m.fit(X_train,y_train)
 print_score(m)
 
@@ -487,10 +505,9 @@ features = ['GarageFinish_Unf','GarageType_Detchd']
 feat_list = list_trans(features)
 I = importances(m, X_valid, y_valid,features = feat_list)
 
-X_train.drop(['ExterQual'],axis=1,inplace=True)
-X_test.drop(['ExterQual'],axis=1,inplace=True)
-X_valid.drop(['ExterQual'],axis=1,inplace=True)
-
+X_train.drop(['GarageType_Detchd'],axis=1,inplace=True)
+X_test.drop(['GarageType_Detchd'],axis=1,inplace=True)
+X_valid.drop(['GarageType_Detchd'],axis=1,inplace=True)
 # check Exterior1st Vinyld sd with correlations of .56 on a few variables
 
 features = ['Exterior1st_VinylSd','YearBuilt','YearRemodAdd','Foundation_PConc','HasPconc','HeatingQC']
@@ -532,10 +549,6 @@ features = ['GarageArea','GarageCars']
 feat_list = list_trans(features)
 I = importances(m, X_valid, y_valid,features = feat_list)
 
-X_train.drop(['MasVnrType_BrkFace'],axis=1,inplace=True)
-X_test.drop(['MasVnrType_BrkFace'],axis=1,inplace=True)
-X_valid.drop(['MasVnrType_BrkFace'],axis=1,inplace=True)
-
 # Pconc
 
 features = ['Foundation_PConc','HasPconc']
@@ -558,24 +571,74 @@ features = ['Fireplaces','FireplaceQU']
 feat_list = list_trans(features)
 I = importances(m, X_valid, y_valid,features = feat_list)
 
-# rooms
+#Rooms
 
-#Bsmt  Qual
-
-features = ['YearRemodAdd','YearBuilt','KitchenExterQual']
+features = ['TotRmsAbvGrd','BedroomAbvGr']
 feat_list = list_trans(features)
 I = importances(m, X_valid, y_valid,features = feat_list)
 
-X_train.drop(['MasVnrType_BrkFace'],axis=1,inplace=True)
-X_test.drop(['MasVnrType_BrkFace'],axis=1,inplace=True)
-X_valid.drop(['MasVnrType_BrkFace'],axis=1,inplace=True)
+X_train.drop(['BedroomAbvGr'],axis=1,inplace=True)
+X_test.drop(['BedroomAbvGr'],axis=1,inplace=True)
+X_valid.drop(['BedroomAbvGr'],axis=1,inplace=True)
 
-m = RandomForestRegressor(max_features = 0.5,n_estimators = 150 ,oob_score = True,min_samples_leaf=3)
+#2ndFlrSF
+
+features = ['2ndFlrSF','HouseStyle_2Story','MSSubClass_60']
+feat_list = list_trans(features)
+I = importances(m, X_valid, y_valid,features = feat_list)
+
+X_train.drop(['MSSubClass_60'],axis=1,inplace=True)
+X_test.drop(['MSSubClass_60'],axis=1,inplace=True)
+X_valid.drop(['MSSubClass_60'],axis=1,inplace=True)
+X_train.drop(['HouseStyle_2Story'],axis=1,inplace=True)
+X_test.drop(['HouseStyle_2Story'],axis=1,inplace=True)
+X_valid.drop(['HouseStyle_2Story'],axis=1,inplace=True)
+
+# Garage  Qual
+
+features = ['GarageCond','GarageQual']
+feat_list = list_trans(features)
+I = importances(m, X_valid, y_valid,features = feat_list)
+
+X_train.drop(['GarageCond'],axis=1,inplace=True)
+X_test.drop(['GarageCond'],axis=1,inplace=True)
+X_valid.drop(['GarageCond'],axis=1,inplace=True)
+
+# neigh c3
+
+features = ['Neighborhood_CollgCr','NeighGroup_C3']
+feat_list = list_trans(features)
+I = importances(m, X_valid, y_valid,features = feat_list)
+
+X_train.drop(['Neighborhood_CollgCr'],axis=1,inplace=True)
+X_test.drop(['Neighborhood_CollgCr'],axis=1,inplace=True)
+X_valid.drop(['Neighborhood_CollgCr'],axis=1,inplace=True)
+
+# gilbert
+features = ['Neighborhood_Gilbert','NeighGroup_BNS']
+feat_list = list_trans(features)
+I = importances(m, X_valid, y_valid,features = feat_list)
+
+X_train.drop(['Neighborhood_Gilbert'],axis=1,inplace=True)
+X_test.drop(['Neighborhood_Gilbert'],axis=1,inplace=True)
+X_valid.drop(['Neighborhood_Gilbert'],axis=1,inplace=True)
+
+# bsmt
+
+features = ['BsmtFinType1_ALQ','BsmtFinSF1']
+feat_list = list_trans(features)
+I = importances(m, X_valid, y_valid,features = feat_list)
+
+X_train.drop(['BsmtFinType1_ALQ'],axis=1,inplace=True)
+X_test.drop(['BsmtFinType1_ALQ'],axis=1,inplace=True)
+X_valid.drop(['BsmtFinType1_ALQ'],axis=1,inplace=True)
+
+m = RandomForestRegressor(max_features = 0.5,n_estimators = 50 ,oob_score = True,min_samples_leaf=3)
 m.fit(X_train,y_train)
 print_score(m)
 
 # test variables
-feats = ['MSSubClass_30']
+feats = ['LotFrontage']
 
 print_score(m)
 
@@ -601,9 +664,31 @@ for f in feats:
     
 # drop as needed
 
-X_train.drop(['GarageType_Detchd'],axis=1,inplace=True)
-X_test.drop(['GarageType_Detchd'],axis=1,inplace=True)
-X_valid.drop(['GarageType_Detchd'],axis=1,inplace=True)
+X_train.drop(['CentralAir_Y'],axis=1,inplace=True)
+X_test.drop(['CentralAir_Y'],axis=1,inplace=True)
+X_valid.drop(['CentralAir_Y'],axis=1,inplace=True)
+
+X_train.drop(['BsmtCond'],axis=1,inplace=True)
+X_test.drop(['BsmtCond'],axis=1,inplace=True)
+X_valid.drop(['BsmtCond'],axis=1,inplace=True)
+
+
+X_train.drop(['1stFlrSF'],axis=1,inplace=True)
+X_test.drop(['1stFlrSF'],axis=1,inplace=True)
+X_valid.drop(['1stFlrSF'],axis=1,inplace=True)
+
+X_train.drop(['BsmtExposure_Gd'],axis=1,inplace=True)
+X_test.drop(['BsmtExposure_Gd'],axis=1,inplace=True)
+X_valid.drop(['BsmtExposure_Gd'],axis=1,inplace=True)
+
+X_train.drop(['LotFrontage'],axis=1,inplace=True)
+X_test.drop(['LotFrontage'],axis=1,inplace=True)
+X_valid.drop(['LotFrontage'],axis=1,inplace=True)
+
+X_train.drop(['Electrical_SBrkr'],axis=1,inplace=True)
+X_test.drop(['Electrical_SBrkr'],axis=1,inplace=True)
+X_valid.drop(['Electrical_SBrkr'],axis=1,inplace=True)
+
 X_train.drop(['GarageFinish_RFn'],axis=1,inplace=True)
 X_test.drop(['GarageFinish_RFn'],axis=1,inplace=True)
 X_valid.drop(['GarageFinish_RFn'],axis=1,inplace=True)
@@ -616,9 +701,6 @@ X_valid.drop(['Exterior1st_VinylSd'],axis=1,inplace=True)
 X_train.drop(['MasVnrArea'],axis=1,inplace=True)
 X_test.drop(['MasVnrArea'],axis=1,inplace=True)
 X_valid.drop(['MasVnrArea'],axis=1,inplace=True)
-X_train.drop(['Neighborhood_BrkSide'],axis=1,inplace=True)
-X_test.drop(['Neighborhood_BrkSide'],axis=1,inplace=True)
-X_valid.drop(['Neighborhood_BrkSide'],axis=1,inplace=True)
 X_train.drop(['Neighborhood_BrkSide'],axis=1,inplace=True)
 X_test.drop(['Neighborhood_BrkSide'],axis=1,inplace=True)
 X_valid.drop(['Neighborhood_BrkSide'],axis=1,inplace=True)
@@ -673,6 +755,7 @@ X_train.drop(['Class'],axis=1,inplace=True)
 
 # submit predictions
 
+current_wd = os.getcwd()
 y_pred = m.predict(X_test)
 df_test['SalePrice'] = y_pred
 submissions = df_test[['Id','SalePrice']]

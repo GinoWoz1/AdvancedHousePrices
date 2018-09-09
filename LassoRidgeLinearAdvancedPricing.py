@@ -423,6 +423,7 @@ skewness = pd.DataFrame({'Skew' :skewed_feats}).reset_index()
 skewness.rename(columns = {'index':'feature'},inplace=True)
 
 # remove values that shouldnt be transformed
+
 skewness = skewness[skewness.feature != 'BsmtHalfBath']
 skewness = skewness[skewness.feature != 'KitchenAbvGr']
 skewness = skewness[skewness.feature != 'HalfBath']
@@ -462,7 +463,9 @@ scale_features = skewness.feature.values.tolist()
 train[scale_features] = scaler.fit_transform(train[scale_features])
 test[scale_features] = scaler.fit_transform(test[scale_features])
 
+
 # create feature for 1st or 2nd floor
+
 train['HalfBathTransformed'] = train['HalfBath'] * 0.5
 train['HalfBathBsmtTransformed'] = train['BsmtHalfBath'] * 0.5
 train['Baths'] = train['FullBath'] + train['HalfBathTransformed'] + train['HalfBathBsmtTransformed']  + train['BsmtFullBath']
@@ -471,6 +474,12 @@ train['Baths'] = train['FullBath'] + train['HalfBathTransformed'] + train['HalfB
 test['HalfBathTransformed'] = test['HalfBath'] * 0.5
 test['HalfBathBsmtTransformed'] = test['BsmtHalfBath'] * 0.5
 test['Baths'] = test['FullBath'] + test['HalfBathTransformed'] + test['HalfBathBsmtTransformed']  + test['BsmtFullBath']
+
+
+X_train,X_valid,y_train,y_valid = train_test_split(train,y_train,test_size=0.25,random_state=1)
+
+sns.distplot(y_train)
+sns.distplot(y_valid)
 
 
 # look at distribution of sale price
@@ -559,7 +568,7 @@ i=0
 for col in cols_continuous:
     i+=1
     ax=plt.subplot(frows,fcols,i)
-    sns.regplot(x=col, y='SalePrice', data=train, ax=ax, 
+    sns.regplot(x=col, y=np.log('SalePrice'), data=train, ax=ax, 
                 scatter_kws={'marker':'.','s':3,'alpha':0.3},
                 line_kws={'color':'k'});
     plt.xlabel(col)
@@ -570,10 +579,6 @@ for col in cols_continuous:
     sns.distplot(train[col].dropna() , fit=stats.norm)
     plt.xlabel(col)
 
-# create additional columns in test - missing after dummies
-y_train = pd.Series(np.log(df_train.SalePrice.values))
-
-X_train,X_valid,y_train,y_valid = train_test_split(train,y_train,test_size=0.25,random_state=1)
 
 # create feature list to throw through lm model - create dynamic list
 x_tr = X_train[['TotalSF','OverallQual','KitchenExterQual','GarageCars','NeighGroup','After91','Has2ndFlrSF','HasMiscVal','HasScreenPorch','HasWoodDeckSF','HasOpenPorchSF','HasEnclosedPorch','HasMasVnrArea','HasGarageArea','HasFireplaces','HasTotalBsmtSF','HasVnrStone','HeatingEx','IsDuplex','MSSubClass','Baths','HasPconc','TotRmsAbvGrd','GarageArea','LotFrontage']]
