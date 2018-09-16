@@ -20,10 +20,9 @@ warnings.filterwarnings('ignore')
 
 url = 'https://github.com/GinoWoz1/AdvancedHousePrices/raw/master/'
 
-X_train = pd.read_csv(url + 'train_155_noEng.csv')
-X_train.drop(['Unnamed: 0'],axis=1,inplace=True)
+X_train = pd.read_csv(url + 'train_155_noEng.csv',index_col='Unnamed: 0')
 
-y_train = pd.read_csv(url + 'y_train_155_noEng.csv')
+y_train = pd.read_csv(url + 'y_train_155_noEng.csv',header=None,index_col=0)
 
 def rmsle_loss(y_true, y_pred):
     assert len(y_true) == len(y_pred)
