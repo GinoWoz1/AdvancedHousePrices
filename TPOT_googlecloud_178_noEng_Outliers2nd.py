@@ -22,9 +22,9 @@ warnings.filterwarnings('ignore')
 
 url = 'https://github.com/GinoWoz1/AdvancedHousePrices/raw/master/'
 
-X_train = pd.read_csv(url + 'train_220_noEng_Outliers.csv',index_col='Unnamed: 0')
+X_train = pd.read_csv(url + 'train_178_noEng_Outliers.csv',index_col='Unnamed: 0')
 
-y_train = pd.read_csv(url + 'y_train_220_noEng_Outliers.csv',header=None,index_col=0)
+y_train = pd.read_csv(url + 'y_train_178_noEng_Outliers.csv',header=None,index_col=0)
 
 def rmsle_loss(y_true, y_pred):
     assert len(y_true) == len(y_pred)
@@ -38,10 +38,10 @@ def rmsle_loss(y_true, y_pred):
 
 rmsle_loss = make_scorer(rmsle_loss,greater_is_better=False)
 
-tpot = TPOTRegressor(verbosity=3, scoring = rmsle_loss,periodic_checkpoint_folder='C:\\Users\\jstnjc\\Google Drive\\Kaggle\\Advanced House Prices\\NoEng200_outliers2nd', population_size=300,offspring_size= 400,max_eval_time_mins=10, use_dask=True)
+tpot = TPOTRegressor(verbosity=3, scoring = rmsle_loss,periodic_checkpoint_folder='C:\\Users\\jstnjc\\Google Drive\\Kaggle\\Advanced House Prices\\NoEng178_outliers2nd', population_size=300,offspring_size= 400,max_eval_time_mins=10, use_dask=True)
 tpot.fit(X_train,y_train)
 
 eval_pareto = tpot.pareto_front_fitted_pipelines_
-output2 = open('C:\\Users\\jstnjc\\Google Drive\\Kaggle\\Advanced House Prices\\NoEng200_outliers2nd\\eval_pareto.pkl','wb')
+output2 = open('C:\\Users\\jstnjc\\Google Drive\\Kaggle\\Advanced House Prices\\NoEng178_outliers2nd\\eval_pareto.pkl','wb')
 pck.dump(eval_pareto,output2)
 
