@@ -168,11 +168,11 @@ custom_config =  {
     
 rmsle_loss = make_scorer(rmsle_loss,greater_is_better=False)
 
-tpot = TPOTRegressor(verbosity=3, config_dict= custom_config,scoring = rmsle_loss,periodic_checkpoint_folder='C:\\Users\\jjonus\\Google Drive\\Kaggle\\Advanced House Prices\\Eng87', population_size=300,offspring_size= 400,max_eval_time_mins=10, use_dask=True)
+tpot = TPOTRegressor(verbosity=3, config_dict= custom_config,scoring = rmsle_loss,periodic_checkpoint_folder='C:\\Users\\jjonus\\Google Drive\\Kaggle\\Advanced House Prices\\Eng87_2', population_size=300,offspring_size= 400,max_eval_time_mins=10, use_dask=True)
 tpot.fit(X_train,y_train[1])
 
 eval_pareto = tpot.pareto_front_fitted_pipelines_
-output2 = open('C:\\Users\\jjonus\\Google Drive\\Kaggle\\Advanced House Prices\\Eng87\\eval_pareto.pkl','wb')
+output2 = open('C:\\Users\\jjonus\\Google Drive\\Kaggle\\Advanced House Prices\\Eng87_2\\eval_pareto.pkl','wb')
 pck.dump(eval_pareto,output2)
 
 
