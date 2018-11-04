@@ -14,16 +14,22 @@ import os
 import pickle as pck
 import numpy as np
 
-mingw_path = 'C:\\Users\\jjonus\\Anaconda3\\Library\\mingw-w64\\bin'
+mingw_path = 'C:\\Users\\xiaotingjoyce\\Anaconda3\\Library\\mingw-w64\\bin'
 os.environ['PATH'] = mingw_path + ';' + os.environ['PATH']
 
 warnings.filterwarnings('ignore')
 
+"""
 url = 'https://github.com/GinoWoz1/AdvancedHousePrices/raw/master/'
 
-X_train = pd.read_csv(url + 'train_87_eng.csv',index_col="Unnamed: 0")
+X_train = pd.read_csv(url + 'train_EngOutliers.csv',index_col="Unnamed: 0")
 
-y_train = pd.read_csv(url + 'y_train_87_eng.csv',header=None)
+y_train = pd.read_csv(url + 'y_train_EngOutliers.csv',header=None)
+"""
+
+X_train = pd.read_csv('C:\\Users\\xiaotingjoyce\\Google Drive\\Kaggle\\GitAdvancedHousePrices\\train_EngOutliers.csv',index_col="Unnamed: 0")
+
+y_train = pd.read_csv('C:\\Users\\xiaotingjoyce\\Google Drive\\Kaggle\\GitAdvancedHousePrices\\y_train_EngOutliers.csv',header=None,index_col=0)
 
 def rmsle_loss(y_true, y_pred):
     assert len(y_true) == len(y_pred)
@@ -168,11 +174,11 @@ custom_config =  {
     
 rmsle_loss = make_scorer(rmsle_loss,greater_is_better=False)
 
-tpot = TPOTRegressor(verbosity=3, config_dict= custom_config,scoring = rmsle_loss,periodic_checkpoint_folder='C:\\Users\\jjonus\\Google Drive\\Kaggle\\Advanced House Prices\\Eng87_2', population_size=300,offspring_size= 400,max_eval_time_mins=10, use_dask=True)
+tpot = TPOTRegressor(verbosity=3, config_dict= custom_config,scoring = rmsle_loss,periodic_checkpoint_folder='C:\\Users\\xiaotingjoyce\\Google Drive\\Kaggle\\Advanced House Prices\\Eng_1', population_size=300,offspring_size= 400,max_eval_time_mins=10, use_dask=True)
 tpot.fit(X_train,y_train[1])
 
 eval_pareto = tpot.pareto_front_fitted_pipelines_
-output2 = open('C:\\Users\\jjonus\\Google Drive\\Kaggle\\Advanced House Prices\\Eng87_2\\eval_pareto.pkl','wb')
+output2 = open('C:\\Users\\xiaotingjoyce\\Google Drive\\Kaggle\\Advanced House Prices\\Eng_1\\eval_pareto.pkl','wb')
 pck.dump(eval_pareto,output2)
 
 
